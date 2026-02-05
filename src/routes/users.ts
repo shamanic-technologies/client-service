@@ -2,7 +2,7 @@ import { Router } from "express";
 import { db } from "../db/index.js";
 import { users } from "../db/schema.js";
 import { eq } from "drizzle-orm";
-import { requireAuth, AuthenticatedRequest } from "../middleware/auth.js";
+import { requireAuth, requireApiKey, AuthenticatedRequest } from "../middleware/auth.js";
 
 const router = Router();
 
@@ -58,7 +58,7 @@ router.get("/users/me", requireAuth, async (req: AuthenticatedRequest, res) => {
 });
 
 // Get internal user ID from Clerk ID (for other services)
-router.get("/users/by-clerk/:clerkUserId", async (req, res) => {
+router.get("/users/by-clerk/:clerkUserId", requireApiKey, async (req, res) => {
   try {
     const { clerkUserId } = req.params;
 

@@ -2,7 +2,7 @@ import { Router } from "express";
 import { db } from "../db/index.js";
 import { orgs } from "../db/schema.js";
 import { eq } from "drizzle-orm";
-import { requireAuth, AuthenticatedRequest } from "../middleware/auth.js";
+import { requireAuth, requireApiKey, AuthenticatedRequest } from "../middleware/auth.js";
 
 const router = Router();
 
@@ -66,7 +66,7 @@ router.get("/orgs/me", requireAuth, async (req: AuthenticatedRequest, res) => {
 });
 
 // Get internal org ID from Clerk Org ID (for other services)
-router.get("/orgs/by-clerk/:clerkOrgId", async (req, res) => {
+router.get("/orgs/by-clerk/:clerkOrgId", requireApiKey, async (req, res) => {
   try {
     const { clerkOrgId } = req.params;
 
