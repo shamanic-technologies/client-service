@@ -171,6 +171,10 @@ registry.registerPath({
       description: "User found",
       content: { "application/json": { schema: UserGetResponseSchema } },
     },
+    400: {
+      description: "Invalid parameters",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
     401: {
       description: "Unauthorized",
       content: { "application/json": { schema: ErrorResponseSchema } },
@@ -252,6 +256,10 @@ registry.registerPath({
     200: {
       description: "Org found",
       content: { "application/json": { schema: OrgGetResponseSchema } },
+    },
+    400: {
+      description: "Invalid parameters",
+      content: { "application/json": { schema: ErrorResponseSchema } },
     },
     401: {
       description: "Unauthorized",
