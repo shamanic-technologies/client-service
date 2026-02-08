@@ -3,6 +3,7 @@ import { db } from "../db/index.js";
 import { users } from "../db/schema.js";
 import { eq } from "drizzle-orm";
 import { requireAuth, requireApiKey, AuthenticatedRequest } from "../middleware/auth.js";
+import { ClerkUserIdParamSchema } from "../schemas.js";
 
 const router = Router();
 
@@ -11,7 +12,6 @@ router.post("/users/sync", requireAuth, async (req: AuthenticatedRequest, res) =
   try {
     const clerkUserId = req.userId!;
 
-    // Check if user exists
     const existing = await db
       .select()
       .from(users)
@@ -22,7 +22,6 @@ router.post("/users/sync", requireAuth, async (req: AuthenticatedRequest, res) =
       return res.json({ user: existing[0], created: false });
     }
 
-    // Create new user
     const [newUser] = await db
       .insert(users)
       .values({ clerkUserId })
@@ -60,7 +59,12 @@ router.get("/users/me", requireAuth, async (req: AuthenticatedRequest, res) => {
 // Get internal user ID from Clerk ID (for other services)
 router.get("/users/by-clerk/:clerkUserId", requireApiKey, async (req, res) => {
   try {
-    const { clerkUserId } = req.params;
+    const parsed = ClerkUserIdParamSchema.safeParse(req.params);
+    if (!parsed.success) {
+      return res.status(400).json({ error: "Invalid parameters", details: parsed.error.flatten() });
+    }
+
+    const { clerkUserId } = parsed.data;
 
     const [user] = await db
       .select()

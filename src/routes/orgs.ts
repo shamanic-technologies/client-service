@@ -3,6 +3,7 @@ import { db } from "../db/index.js";
 import { orgs } from "../db/schema.js";
 import { eq } from "drizzle-orm";
 import { requireAuth, requireApiKey, AuthenticatedRequest } from "../middleware/auth.js";
+import { ClerkOrgIdParamSchema } from "../schemas.js";
 
 const router = Router();
 
@@ -15,7 +16,6 @@ router.post("/orgs/sync", requireAuth, async (req: AuthenticatedRequest, res) =>
       return res.status(400).json({ error: "No organization context" });
     }
 
-    // Check if org exists
     const existing = await db
       .select()
       .from(orgs)
@@ -26,7 +26,6 @@ router.post("/orgs/sync", requireAuth, async (req: AuthenticatedRequest, res) =>
       return res.json({ org: existing[0], created: false });
     }
 
-    // Create new org
     const [newOrg] = await db
       .insert(orgs)
       .values({ clerkOrgId })
@@ -68,7 +67,12 @@ router.get("/orgs/me", requireAuth, async (req: AuthenticatedRequest, res) => {
 // Get internal org ID from Clerk Org ID (for other services)
 router.get("/orgs/by-clerk/:clerkOrgId", requireApiKey, async (req, res) => {
   try {
-    const { clerkOrgId } = req.params;
+    const parsed = ClerkOrgIdParamSchema.safeParse(req.params);
+    if (!parsed.success) {
+      return res.status(400).json({ error: "Invalid parameters", details: parsed.error.flatten() });
+    }
+
+    const { clerkOrgId } = parsed.data;
 
     const [org] = await db
       .select()
