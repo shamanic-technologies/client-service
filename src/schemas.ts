@@ -103,7 +103,9 @@ registry.registerComponent("securitySchemes", "ApiKeyAuth", {
 registry.registerPath({
   method: "get",
   path: "/health",
+  operationId: "healthCheck",
   summary: "Health check",
+  security: [],
   responses: {
     200: {
       description: "Service is healthy",
@@ -115,6 +117,7 @@ registry.registerPath({
 registry.registerPath({
   method: "post",
   path: "/users/sync",
+  operationId: "syncUser",
   summary: "Get or create user from Clerk ID",
   security: [{ BearerAuth: [] }],
   responses: {
@@ -136,6 +139,7 @@ registry.registerPath({
 registry.registerPath({
   method: "get",
   path: "/users/me",
+  operationId: "getCurrentUser",
   summary: "Get current user by Clerk ID",
   security: [{ BearerAuth: [] }],
   responses: {
@@ -161,6 +165,7 @@ registry.registerPath({
 registry.registerPath({
   method: "get",
   path: "/users/by-clerk/{clerkUserId}",
+  operationId: "getUserByClerkId",
   summary: "Get internal user ID from Clerk ID (service-to-service)",
   security: [{ ApiKeyAuth: [] }],
   request: {
@@ -189,6 +194,7 @@ registry.registerPath({
 registry.registerPath({
   method: "post",
   path: "/orgs/sync",
+  operationId: "syncOrg",
   summary: "Get or create org from Clerk Org ID",
   security: [{ BearerAuth: [] }],
   responses: {
@@ -214,6 +220,7 @@ registry.registerPath({
 registry.registerPath({
   method: "get",
   path: "/orgs/me",
+  operationId: "getCurrentOrg",
   summary: "Get current org by Clerk Org ID",
   security: [{ BearerAuth: [] }],
   responses: {
@@ -243,6 +250,7 @@ registry.registerPath({
 registry.registerPath({
   method: "get",
   path: "/orgs/by-clerk/{clerkOrgId}",
+  operationId: "getOrgByClerkId",
   summary: "Get internal org ID from Clerk Org ID (service-to-service)",
   security: [{ ApiKeyAuth: [] }],
   request: {

@@ -11,6 +11,7 @@ const document = generator.generateDocument({
     description:
       "User and organization management service for MCPFactory",
     version: "1.0.0",
+    license: { name: "MIT", url: "https://opensource.org/licenses/MIT" },
   },
   servers: [{ url: "https://client.mcpfactory.org" }],
 });
