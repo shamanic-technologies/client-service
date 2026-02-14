@@ -1,0 +1,182 @@
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import request from "supertest";
+import express from "express";
+
+// Mock the DB module before importing routes
+vi.mock("../../src/db/index.js", () => ({
+  db: {
+    insert: vi.fn().mockReturnValue({
+      values: vi.fn().mockReturnValue({
+        onConflictDoUpdate: vi.fn().mockReturnValue({
+          returning: vi.fn().mockResolvedValue([{
+            id: "550e8400-e29b-41d4-a716-446655440000",
+            appId: "polaritycourse",
+            email: "test@example.com",
+            firstName: "John",
+            lastName: null,
+            phone: null,
+            clerkUserId: null,
+            clerkOrgId: null,
+            metadata: null,
+            createdAt: new Date("2024-01-01T00:00:00Z"),
+            updatedAt: new Date("2024-01-01T00:00:00Z"),
+          }]),
+        }),
+      }),
+    }),
+    select: vi.fn().mockReturnValue({
+      from: vi.fn().mockReturnValue({
+        where: vi.fn().mockReturnValue({
+          limit: vi.fn().mockReturnValue({
+            offset: vi.fn().mockReturnValue({
+              orderBy: vi.fn().mockResolvedValue([]),
+            }),
+          }),
+        }),
+      }),
+    }),
+    update: vi.fn().mockReturnValue({
+      set: vi.fn().mockReturnValue({
+        where: vi.fn().mockReturnValue({
+          returning: vi.fn().mockResolvedValue([]),
+        }),
+      }),
+    }),
+  },
+  sql: {},
+}));
+
+function createTestAppWithAnonymousUsers() {
+  const app = express();
+  app.use(express.json());
+
+  // Import routes lazily after mocks are set up
+  return import("../../src/routes/anonymous-users.js").then((mod) => {
+    app.use(mod.default);
+    app.use((_req, res) => {
+      res.status(404).json({ error: "Not found" });
+    });
+    return app;
+  });
+}
+
+function getApiKeyHeaders() {
+  return {
+    "x-api-key": "test_api_key",
+    "Content-Type": "application/json",
+  };
+}
+
+describe("Anonymous Users Routes", () => {
+  let app: express.Express;
+
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    app = await createTestAppWithAnonymousUsers();
+  });
+
+  describe("POST /anonymous-users", () => {
+    it("should reject requests without API key", async () => {
+      const res = await request(app)
+        .post("/anonymous-users")
+        .send({ appId: "polaritycourse", email: "test@example.com" });
+
+      expect(res.status).toBe(401);
+    });
+
+    it("should reject requests with invalid body", async () => {
+      const res = await request(app)
+        .post("/anonymous-users")
+        .set(getApiKeyHeaders())
+        .send({});
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toBe("Invalid request body");
+    });
+
+    it("should reject requests with invalid email", async () => {
+      const res = await request(app)
+        .post("/anonymous-users")
+        .set(getApiKeyHeaders())
+        .send({ appId: "polaritycourse", email: "not-an-email" });
+
+      expect(res.status).toBe(400);
+    });
+
+    it("should create anonymous user with valid data", async () => {
+      const res = await request(app)
+        .post("/anonymous-users")
+        .set(getApiKeyHeaders())
+        .send({ appId: "polaritycourse", email: "test@example.com", firstName: "John" });
+
+      expect(res.status).toBe(200);
+      expect(res.body.anonymousUser).toBeDefined();
+      expect(res.body.anonymousUser.appId).toBe("polaritycourse");
+      expect(res.body.anonymousUser.email).toBe("test@example.com");
+      expect(res.body).toHaveProperty("created");
+    });
+  });
+
+  describe("GET /anonymous-users", () => {
+    it("should reject requests without API key", async () => {
+      const res = await request(app)
+        .get("/anonymous-users?appId=polaritycourse");
+
+      expect(res.status).toBe(401);
+    });
+
+    it("should reject requests without appId", async () => {
+      const res = await request(app)
+        .get("/anonymous-users")
+        .set(getApiKeyHeaders());
+
+      expect(res.status).toBe(400);
+    });
+  });
+
+  describe("GET /anonymous-users/:id", () => {
+    it("should reject requests without API key", async () => {
+      const res = await request(app)
+        .get("/anonymous-users/550e8400-e29b-41d4-a716-446655440000");
+
+      expect(res.status).toBe(401);
+    });
+
+    it("should reject requests with invalid UUID", async () => {
+      const res = await request(app)
+        .get("/anonymous-users/not-a-uuid")
+        .set(getApiKeyHeaders());
+
+      expect(res.status).toBe(400);
+    });
+  });
+
+  describe("PATCH /anonymous-users/:id", () => {
+    it("should reject requests without API key", async () => {
+      const res = await request(app)
+        .patch("/anonymous-users/550e8400-e29b-41d4-a716-446655440000")
+        .send({ firstName: "Jane" });
+
+      expect(res.status).toBe(401);
+    });
+
+    it("should reject requests with empty body", async () => {
+      const res = await request(app)
+        .patch("/anonymous-users/550e8400-e29b-41d4-a716-446655440000")
+        .set(getApiKeyHeaders())
+        .send({});
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toBe("No fields to update");
+    });
+
+    it("should reject requests with invalid UUID", async () => {
+      const res = await request(app)
+        .patch("/anonymous-users/not-a-uuid")
+        .set(getApiKeyHeaders())
+        .send({ firstName: "Jane" });
+
+      expect(res.status).toBe(400);
+    });
+  });
+});

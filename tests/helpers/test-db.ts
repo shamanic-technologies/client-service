@@ -1,10 +1,11 @@
 import { db, sql } from "../../src/db/index.js";
-import { orgs, users } from "../../src/db/schema.js";
+import { orgs, users, anonymousUsers } from "../../src/db/schema.js";
 
 /**
  * Clean all test data from the database
  */
 export async function cleanTestData() {
+  await db.delete(anonymousUsers);
   await db.delete(users);
   await db.delete(orgs);
 }
@@ -33,6 +34,26 @@ export async function insertTestUser(data: { clerkUserId?: string } = {}) {
     })
     .returning();
   return user;
+}
+
+/**
+ * Insert a test anonymous user
+ */
+export async function insertTestAnonymousUser(
+  data: { appId?: string; email?: string; firstName?: string; lastName?: string; phone?: string; metadata?: Record<string, unknown> } = {}
+) {
+  const [anonymousUser] = await db
+    .insert(anonymousUsers)
+    .values({
+      appId: data.appId || "test-app",
+      email: data.email || `test-${Date.now()}@example.com`,
+      firstName: data.firstName,
+      lastName: data.lastName,
+      phone: data.phone,
+      metadata: data.metadata,
+    })
+    .returning();
+  return anonymousUser;
 }
 
 /**
