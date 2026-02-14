@@ -2,25 +2,42 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import request from "supertest";
 import express from "express";
 
+const TEST_UUID = "550e8400-e29b-41d4-a716-446655440000";
+const TEST_ORG_UUID = "660e8400-e29b-41d4-a716-446655440000";
+
+const mockOrg = {
+  id: TEST_ORG_UUID,
+  appId: "polaritycourse",
+  name: "Personal",
+  clerkOrgId: null,
+  metadata: null,
+  createdAt: new Date("2024-01-01T00:00:00Z"),
+  updatedAt: new Date("2024-01-01T00:00:00Z"),
+};
+
+const mockUser = {
+  id: TEST_UUID,
+  appId: "polaritycourse",
+  email: "test@example.com",
+  firstName: "John",
+  lastName: null,
+  phone: null,
+  clerkUserId: null,
+  clerkOrgId: null,
+  anonymousOrgId: TEST_ORG_UUID,
+  metadata: null,
+  createdAt: new Date("2024-01-01T00:00:00Z"),
+  updatedAt: new Date("2024-01-01T00:00:00Z"),
+};
+
 // Mock the DB module before importing routes
 vi.mock("../../src/db/index.js", () => ({
   db: {
     insert: vi.fn().mockReturnValue({
       values: vi.fn().mockReturnValue({
+        returning: vi.fn().mockResolvedValue([mockOrg]),
         onConflictDoUpdate: vi.fn().mockReturnValue({
-          returning: vi.fn().mockResolvedValue([{
-            id: "550e8400-e29b-41d4-a716-446655440000",
-            appId: "polaritycourse",
-            email: "test@example.com",
-            firstName: "John",
-            lastName: null,
-            phone: null,
-            clerkUserId: null,
-            clerkOrgId: null,
-            metadata: null,
-            createdAt: new Date("2024-01-01T00:00:00Z"),
-            updatedAt: new Date("2024-01-01T00:00:00Z"),
-          }]),
+          returning: vi.fn().mockResolvedValue([mockUser]),
         }),
       }),
     }),
@@ -50,7 +67,6 @@ function createTestAppWithAnonymousUsers() {
   const app = express();
   app.use(express.json());
 
-  // Import routes lazily after mocks are set up
   return import("../../src/routes/anonymous-users.js").then((mod) => {
     app.use(mod.default);
     app.use((_req, res) => {
@@ -103,7 +119,7 @@ describe("Anonymous Users Routes", () => {
       expect(res.status).toBe(400);
     });
 
-    it("should create anonymous user with valid data", async () => {
+    it("should create anonymous user with auto-created org", async () => {
       const res = await request(app)
         .post("/anonymous-users")
         .set(getApiKeyHeaders())
@@ -111,8 +127,8 @@ describe("Anonymous Users Routes", () => {
 
       expect(res.status).toBe(200);
       expect(res.body.anonymousUser).toBeDefined();
-      expect(res.body.anonymousUser.appId).toBe("polaritycourse");
-      expect(res.body.anonymousUser.email).toBe("test@example.com");
+      expect(res.body.anonymousOrg).toBeDefined();
+      expect(res.body.anonymousOrg.name).toBe("Personal");
       expect(res.body).toHaveProperty("created");
     });
   });
@@ -137,7 +153,7 @@ describe("Anonymous Users Routes", () => {
   describe("GET /anonymous-users/:id", () => {
     it("should reject requests without API key", async () => {
       const res = await request(app)
-        .get("/anonymous-users/550e8400-e29b-41d4-a716-446655440000");
+        .get(`/anonymous-users/${TEST_UUID}`);
 
       expect(res.status).toBe(401);
     });
@@ -154,7 +170,7 @@ describe("Anonymous Users Routes", () => {
   describe("PATCH /anonymous-users/:id", () => {
     it("should reject requests without API key", async () => {
       const res = await request(app)
-        .patch("/anonymous-users/550e8400-e29b-41d4-a716-446655440000")
+        .patch(`/anonymous-users/${TEST_UUID}`)
         .send({ firstName: "Jane" });
 
       expect(res.status).toBe(401);
@@ -162,7 +178,7 @@ describe("Anonymous Users Routes", () => {
 
     it("should reject requests with empty body", async () => {
       const res = await request(app)
-        .patch("/anonymous-users/550e8400-e29b-41d4-a716-446655440000")
+        .patch(`/anonymous-users/${TEST_UUID}`)
         .set(getApiKeyHeaders())
         .send({});
 

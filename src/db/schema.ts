@@ -26,6 +26,19 @@ export const orgs = pgTable(
   ]
 );
 
+export const anonymousOrgs = pgTable(
+  "anonymous_orgs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    appId: text("app_id").notNull(),
+    name: text("name").notNull().default("Personal"),
+    clerkOrgId: text("clerk_org_id"),
+    metadata: jsonb("metadata"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  }
+);
+
 export const anonymousUsers = pgTable(
   "anonymous_users",
   {
@@ -37,6 +50,7 @@ export const anonymousUsers = pgTable(
     phone: text("phone"),
     clerkUserId: text("clerk_user_id"),
     clerkOrgId: text("clerk_org_id"),
+    anonymousOrgId: uuid("anonymous_org_id").references(() => anonymousOrgs.id),
     metadata: jsonb("metadata"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
@@ -50,5 +64,7 @@ export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
 export type Org = typeof orgs.$inferSelect;
 export type NewOrg = typeof orgs.$inferInsert;
+export type AnonymousOrg = typeof anonymousOrgs.$inferSelect;
+export type NewAnonymousOrg = typeof anonymousOrgs.$inferInsert;
 export type AnonymousUser = typeof anonymousUsers.$inferSelect;
 export type NewAnonymousUser = typeof anonymousUsers.$inferInsert;

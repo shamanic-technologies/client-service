@@ -12,6 +12,7 @@ import healthRoutes from "./routes/health.js";
 import usersRoutes from "./routes/users.js";
 import orgsRoutes from "./routes/orgs.js";
 import anonymousUsersRoutes from "./routes/anonymous-users.js";
+import anonymousOrgsRoutes from "./routes/anonymous-orgs.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -47,6 +48,7 @@ app.use(healthRoutes);
 app.use(usersRoutes);
 app.use(orgsRoutes);
 app.use(anonymousUsersRoutes);
+app.use(anonymousOrgsRoutes);
 
 // 404 handler
 app.use((req, res) => {
