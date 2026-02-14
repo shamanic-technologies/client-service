@@ -6,7 +6,7 @@ const hasDb = process.env.CLIENT_SERVICE_DATABASE_URL &&
 
 describe.skipIf(!hasDb)("Anonymous Users Database", () => {
   let db: typeof import("../../src/db/index.js").db;
-  let anonymousUsers: typeof import("../../src/db/schema.js").anonymousUsers;
+  let users: typeof import("../../src/db/schema.js").users;
   let cleanTestData: typeof import("../helpers/test-db.js").cleanTestData;
   let closeDb: typeof import("../helpers/test-db.js").closeDb;
   let insertTestAnonymousUser: typeof import("../helpers/test-db.js").insertTestAnonymousUser;
@@ -17,7 +17,7 @@ describe.skipIf(!hasDb)("Anonymous Users Database", () => {
     const schemaMod = await import("../../src/db/schema.js");
     const helpersMod = await import("../helpers/test-db.js");
     db = dbMod.db;
-    anonymousUsers = schemaMod.anonymousUsers;
+    users = schemaMod.users;
     cleanTestData = helpersMod.cleanTestData;
     closeDb = helpersMod.closeDb;
     insertTestAnonymousUser = helpersMod.insertTestAnonymousUser;
@@ -42,8 +42,8 @@ describe.skipIf(!hasDb)("Anonymous Users Database", () => {
     expect(user.email).toBe("test@example.com");
     expect(user.firstName).toBe("John");
 
-    const found = await db.query.anonymousUsers.findFirst({
-      where: eq(anonymousUsers.id, user.id),
+    const found = await db.query.users.findFirst({
+      where: eq(users.id, user.id),
     });
     expect(found?.email).toBe("test@example.com");
   });
@@ -84,8 +84,8 @@ describe.skipIf(!hasDb)("Anonymous Users Database", () => {
       metadata: { source: "landing_page", utm_campaign: "webinar_q1" },
     });
 
-    const found = await db.query.anonymousUsers.findFirst({
-      where: eq(anonymousUsers.id, user.id),
+    const found = await db.query.users.findFirst({
+      where: eq(users.id, user.id),
     });
     expect(found?.metadata).toEqual({ source: "landing_page", utm_campaign: "webinar_q1" });
   });
@@ -100,24 +100,23 @@ describe.skipIf(!hasDb)("Anonymous Users Database", () => {
     expect(user.lastName).toBeNull();
     expect(user.phone).toBeNull();
     expect(user.clerkUserId).toBeNull();
-    expect(user.clerkOrgId).toBeNull();
-    expect(user.anonymousOrgId).toBeNull();
+    expect(user.orgId).toBeNull();
     expect(user.metadata).toBeNull();
   });
 
-  it("should link anonymous user to anonymous org via FK", async () => {
+  it("should link anonymous user to org via FK", async () => {
     const org = await insertTestAnonymousOrg({ appId: "polaritycourse" });
     const user = await insertTestAnonymousUser({
       appId: "polaritycourse",
       email: "linked@example.com",
-      anonymousOrgId: org.id,
+      orgId: org.id,
     });
 
-    expect(user.anonymousOrgId).toBe(org.id);
+    expect(user.orgId).toBe(org.id);
 
-    const found = await db.query.anonymousUsers.findFirst({
-      where: eq(anonymousUsers.id, user.id),
+    const found = await db.query.users.findFirst({
+      where: eq(users.id, user.id),
     });
-    expect(found?.anonymousOrgId).toBe(org.id);
+    expect(found?.orgId).toBe(org.id);
   });
 });

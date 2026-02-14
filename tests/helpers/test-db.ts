@@ -1,18 +1,16 @@
 import { db, sql } from "../../src/db/index.js";
-import { orgs, users, anonymousUsers, anonymousOrgs } from "../../src/db/schema.js";
+import { orgs, users } from "../../src/db/schema.js";
 
 /**
  * Clean all test data from the database
  */
 export async function cleanTestData() {
-  await db.delete(anonymousUsers);
-  await db.delete(anonymousOrgs);
   await db.delete(users);
   await db.delete(orgs);
 }
 
 /**
- * Insert a test org
+ * Insert a test org (Clerk-based)
  */
 export async function insertTestOrg(data: { clerkOrgId?: string } = {}) {
   const [org] = await db
@@ -25,7 +23,7 @@ export async function insertTestOrg(data: { clerkOrgId?: string } = {}) {
 }
 
 /**
- * Insert a test user
+ * Insert a test user (Clerk-based)
  */
 export async function insertTestUser(data: { clerkUserId?: string } = {}) {
   const [user] = await db
@@ -38,41 +36,41 @@ export async function insertTestUser(data: { clerkUserId?: string } = {}) {
 }
 
 /**
- * Insert a test anonymous org
+ * Insert a test org (anonymous/app-based)
  */
 export async function insertTestAnonymousOrg(
   data: { appId?: string; name?: string; metadata?: Record<string, unknown> } = {}
 ) {
-  const [anonymousOrg] = await db
-    .insert(anonymousOrgs)
+  const [org] = await db
+    .insert(orgs)
     .values({
       appId: data.appId || "test-app",
-      name: data.name,
+      name: data.name ?? "Personal",
       metadata: data.metadata,
     })
     .returning();
-  return anonymousOrg;
+  return org;
 }
 
 /**
- * Insert a test anonymous user
+ * Insert a test user (anonymous/app-based)
  */
 export async function insertTestAnonymousUser(
-  data: { appId?: string; email?: string; firstName?: string; lastName?: string; phone?: string; anonymousOrgId?: string; metadata?: Record<string, unknown> } = {}
+  data: { appId?: string; email?: string; firstName?: string; lastName?: string; phone?: string; orgId?: string; metadata?: Record<string, unknown> } = {}
 ) {
-  const [anonymousUser] = await db
-    .insert(anonymousUsers)
+  const [user] = await db
+    .insert(users)
     .values({
       appId: data.appId || "test-app",
       email: data.email || `test-${Date.now()}@example.com`,
       firstName: data.firstName,
       lastName: data.lastName,
       phone: data.phone,
-      anonymousOrgId: data.anonymousOrgId,
+      orgId: data.orgId,
       metadata: data.metadata,
     })
     .returning();
-  return anonymousUser;
+  return user;
 }
 
 /**

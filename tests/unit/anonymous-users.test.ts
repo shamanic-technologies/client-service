@@ -7,9 +7,9 @@ const TEST_ORG_UUID = "660e8400-e29b-41d4-a716-446655440000";
 
 const mockOrg = {
   id: TEST_ORG_UUID,
+  clerkOrgId: null,
   appId: "polaritycourse",
   name: "Personal",
-  clerkOrgId: null,
   metadata: null,
   createdAt: new Date("2024-01-01T00:00:00Z"),
   updatedAt: new Date("2024-01-01T00:00:00Z"),
@@ -17,14 +17,13 @@ const mockOrg = {
 
 const mockUser = {
   id: TEST_UUID,
+  clerkUserId: null,
   appId: "polaritycourse",
   email: "test@example.com",
   firstName: "John",
   lastName: null,
   phone: null,
-  clerkUserId: null,
-  clerkOrgId: null,
-  anonymousOrgId: TEST_ORG_UUID,
+  orgId: TEST_ORG_UUID,
   metadata: null,
   createdAt: new Date("2024-01-01T00:00:00Z"),
   updatedAt: new Date("2024-01-01T00:00:00Z"),
@@ -126,9 +125,9 @@ describe("Anonymous Users Routes", () => {
         .send({ appId: "polaritycourse", email: "test@example.com", firstName: "John" });
 
       expect(res.status).toBe(200);
-      expect(res.body.anonymousUser).toBeDefined();
-      expect(res.body.anonymousOrg).toBeDefined();
-      expect(res.body.anonymousOrg.name).toBe("Personal");
+      expect(res.body.user).toBeDefined();
+      expect(res.body.org).toBeDefined();
+      expect(res.body.org.name).toBe("Personal");
       expect(res.body).toHaveProperty("created");
     });
   });
