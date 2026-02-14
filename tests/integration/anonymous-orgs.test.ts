@@ -6,7 +6,7 @@ const hasDb = process.env.CLIENT_SERVICE_DATABASE_URL &&
 
 describe.skipIf(!hasDb)("Anonymous Orgs Database", () => {
   let db: typeof import("../../src/db/index.js").db;
-  let anonymousOrgs: typeof import("../../src/db/schema.js").anonymousOrgs;
+  let orgs: typeof import("../../src/db/schema.js").orgs;
   let cleanTestData: typeof import("../helpers/test-db.js").cleanTestData;
   let closeDb: typeof import("../helpers/test-db.js").closeDb;
   let insertTestAnonymousOrg: typeof import("../helpers/test-db.js").insertTestAnonymousOrg;
@@ -16,7 +16,7 @@ describe.skipIf(!hasDb)("Anonymous Orgs Database", () => {
     const schemaMod = await import("../../src/db/schema.js");
     const helpersMod = await import("../helpers/test-db.js");
     db = dbMod.db;
-    anonymousOrgs = schemaMod.anonymousOrgs;
+    orgs = schemaMod.orgs;
     cleanTestData = helpersMod.cleanTestData;
     closeDb = helpersMod.closeDb;
     insertTestAnonymousOrg = helpersMod.insertTestAnonymousOrg;
@@ -38,8 +38,8 @@ describe.skipIf(!hasDb)("Anonymous Orgs Database", () => {
     expect(org.appId).toBe("polaritycourse");
     expect(org.name).toBe("Team Alpha");
 
-    const found = await db.query.anonymousOrgs.findFirst({
-      where: eq(anonymousOrgs.id, org.id),
+    const found = await db.query.orgs.findFirst({
+      where: eq(orgs.id, org.id),
     });
     expect(found?.name).toBe("Team Alpha");
   });
@@ -58,8 +58,8 @@ describe.skipIf(!hasDb)("Anonymous Orgs Database", () => {
       metadata: { plan: "free", source: "webinar" },
     });
 
-    const found = await db.query.anonymousOrgs.findFirst({
-      where: eq(anonymousOrgs.id, org.id),
+    const found = await db.query.orgs.findFirst({
+      where: eq(orgs.id, org.id),
     });
     expect(found?.metadata).toEqual({ plan: "free", source: "webinar" });
   });

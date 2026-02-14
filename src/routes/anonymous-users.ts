@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { db } from "../db/index.js";
-import { anonymousUsers, anonymousOrgs } from "../db/schema.js";
+import { users, orgs } from "../db/schema.js";
 import { eq, count } from "drizzle-orm";
 import { requireApiKey } from "../middleware/auth.js";
 import {
@@ -20,45 +20,45 @@ router.post("/anonymous-users", requireApiKey, async (req, res) => {
       return res.status(400).json({ error: "Invalid request body", details: parsed.error.flatten() });
     }
 
-    const { appId, email, anonymousOrgId: providedOrgId, ...rest } = parsed.data;
+    const { appId, email, orgId: providedOrgId, ...rest } = parsed.data;
 
-    // Resolve or create anonymous org
-    let anonymousOrg;
+    // Resolve or create org
+    let org;
     if (providedOrgId) {
       const [existing] = await db
         .select()
-        .from(anonymousOrgs)
-        .where(eq(anonymousOrgs.id, providedOrgId))
+        .from(orgs)
+        .where(eq(orgs.id, providedOrgId))
         .limit(1);
 
       if (!existing) {
-        return res.status(400).json({ error: "Anonymous org not found" });
+        return res.status(400).json({ error: "Org not found" });
       }
-      anonymousOrg = existing;
+      org = existing;
     } else {
-      [anonymousOrg] = await db
-        .insert(anonymousOrgs)
-        .values({ appId })
+      [org] = await db
+        .insert(orgs)
+        .values({ appId, name: "Personal" })
         .returning();
     }
 
-    const [anonymousUser] = await db
-      .insert(anonymousUsers)
-      .values({ appId, email, anonymousOrgId: anonymousOrg.id, ...rest })
+    const [user] = await db
+      .insert(users)
+      .values({ appId, email, orgId: org.id, ...rest })
       .onConflictDoUpdate({
-        target: [anonymousUsers.appId, anonymousUsers.email],
+        target: [users.appId, users.email],
         set: {
           ...rest,
-          anonymousOrgId: anonymousOrg.id,
+          orgId: org.id,
           updatedAt: new Date(),
         },
       })
       .returning();
 
     // Check if it was created or updated by comparing timestamps
-    const created = anonymousUser.createdAt.getTime() === anonymousUser.updatedAt.getTime();
+    const created = user.createdAt.getTime() === user.updatedAt.getTime();
 
-    return res.json({ anonymousUser, anonymousOrg, created });
+    return res.json({ user, org, created });
   } catch (error) {
     console.error("Create anonymous user error:", error);
     return res.status(500).json({ error: "Failed to create anonymous user" });
@@ -78,18 +78,18 @@ router.get("/anonymous-users", requireApiKey, async (req, res) => {
     const [items, [{ total }]] = await Promise.all([
       db
         .select()
-        .from(anonymousUsers)
-        .where(eq(anonymousUsers.appId, appId))
+        .from(users)
+        .where(eq(users.appId, appId))
         .limit(limit)
         .offset(offset)
-        .orderBy(anonymousUsers.createdAt),
+        .orderBy(users.createdAt),
       db
         .select({ total: count() })
-        .from(anonymousUsers)
-        .where(eq(anonymousUsers.appId, appId)),
+        .from(users)
+        .where(eq(users.appId, appId)),
     ]);
 
-    return res.json({ anonymousUsers: items, total, limit, offset });
+    return res.json({ users: items, total, limit, offset });
   } catch (error) {
     console.error("List anonymous users error:", error);
     return res.status(500).json({ error: "Failed to list anonymous users" });
@@ -106,17 +106,17 @@ router.get("/anonymous-users/:id", requireApiKey, async (req, res) => {
 
     const { id } = parsed.data;
 
-    const [anonymousUser] = await db
+    const [user] = await db
       .select()
-      .from(anonymousUsers)
-      .where(eq(anonymousUsers.id, id))
+      .from(users)
+      .where(eq(users.id, id))
       .limit(1);
 
-    if (!anonymousUser) {
-      return res.status(404).json({ error: "Anonymous user not found" });
+    if (!user) {
+      return res.status(404).json({ error: "User not found" });
     }
 
-    return res.json({ anonymousUser });
+    return res.json({ user });
   } catch (error) {
     console.error("Get anonymous user error:", error);
     return res.status(500).json({ error: "Failed to get anonymous user" });
@@ -143,17 +143,17 @@ router.patch("/anonymous-users/:id", requireApiKey, async (req, res) => {
       return res.status(400).json({ error: "No fields to update" });
     }
 
-    const [anonymousUser] = await db
-      .update(anonymousUsers)
+    const [user] = await db
+      .update(users)
       .set({ ...updates, updatedAt: new Date() })
-      .where(eq(anonymousUsers.id, id))
+      .where(eq(users.id, id))
       .returning();
 
-    if (!anonymousUser) {
-      return res.status(404).json({ error: "Anonymous user not found" });
+    if (!user) {
+      return res.status(404).json({ error: "User not found" });
     }
 
-    return res.json({ anonymousUser });
+    return res.json({ user });
   } catch (error) {
     console.error("Update anonymous user error:", error);
     return res.status(500).json({ error: "Failed to update anonymous user" });

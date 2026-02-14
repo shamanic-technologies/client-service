@@ -1,23 +1,13 @@
 import { pgTable, uuid, text, timestamp, uniqueIndex, jsonb } from "drizzle-orm/pg-core";
 
-export const users = pgTable(
-  "users",
-  {
-    id: uuid("id").primaryKey().defaultRandom(),
-    clerkUserId: text("clerk_user_id").notNull().unique(),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-  },
-  (table) => [
-    uniqueIndex("idx_users_clerk_id").on(table.clerkUserId),
-  ]
-);
-
 export const orgs = pgTable(
   "orgs",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    clerkOrgId: text("clerk_org_id").notNull().unique(),
+    clerkOrgId: text("clerk_org_id"),
+    appId: text("app_id"),
+    name: text("name"),
+    metadata: jsonb("metadata"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -26,37 +16,24 @@ export const orgs = pgTable(
   ]
 );
 
-export const anonymousOrgs = pgTable(
-  "anonymous_orgs",
+export const users = pgTable(
+  "users",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    appId: text("app_id").notNull(),
-    name: text("name").notNull().default("Personal"),
-    clerkOrgId: text("clerk_org_id"),
-    metadata: jsonb("metadata"),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-  }
-);
-
-export const anonymousUsers = pgTable(
-  "anonymous_users",
-  {
-    id: uuid("id").primaryKey().defaultRandom(),
-    appId: text("app_id").notNull(),
-    email: text("email").notNull(),
+    clerkUserId: text("clerk_user_id"),
+    appId: text("app_id"),
+    email: text("email"),
     firstName: text("first_name"),
     lastName: text("last_name"),
     phone: text("phone"),
-    clerkUserId: text("clerk_user_id"),
-    clerkOrgId: text("clerk_org_id"),
-    anonymousOrgId: uuid("anonymous_org_id").references(() => anonymousOrgs.id),
+    orgId: uuid("org_id").references(() => orgs.id),
     metadata: jsonb("metadata"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
-    uniqueIndex("idx_anonymous_users_app_email").on(table.appId, table.email),
+    uniqueIndex("idx_users_clerk_id").on(table.clerkUserId),
+    uniqueIndex("idx_users_app_email").on(table.appId, table.email),
   ]
 );
 
@@ -64,7 +41,3 @@ export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
 export type Org = typeof orgs.$inferSelect;
 export type NewOrg = typeof orgs.$inferInsert;
-export type AnonymousOrg = typeof anonymousOrgs.$inferSelect;
-export type NewAnonymousOrg = typeof anonymousOrgs.$inferInsert;
-export type AnonymousUser = typeof anonymousUsers.$inferSelect;
-export type NewAnonymousUser = typeof anonymousUsers.$inferInsert;

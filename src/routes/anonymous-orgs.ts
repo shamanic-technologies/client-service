@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { db } from "../db/index.js";
-import { anonymousOrgs } from "../db/schema.js";
+import { orgs } from "../db/schema.js";
 import { eq, count } from "drizzle-orm";
 import { requireApiKey } from "../middleware/auth.js";
 import {
@@ -24,18 +24,18 @@ router.get("/anonymous-orgs", requireApiKey, async (req, res) => {
     const [items, [{ total }]] = await Promise.all([
       db
         .select()
-        .from(anonymousOrgs)
-        .where(eq(anonymousOrgs.appId, appId))
+        .from(orgs)
+        .where(eq(orgs.appId, appId))
         .limit(limit)
         .offset(offset)
-        .orderBy(anonymousOrgs.createdAt),
+        .orderBy(orgs.createdAt),
       db
         .select({ total: count() })
-        .from(anonymousOrgs)
-        .where(eq(anonymousOrgs.appId, appId)),
+        .from(orgs)
+        .where(eq(orgs.appId, appId)),
     ]);
 
-    return res.json({ anonymousOrgs: items, total, limit, offset });
+    return res.json({ orgs: items, total, limit, offset });
   } catch (error) {
     console.error("List anonymous orgs error:", error);
     return res.status(500).json({ error: "Failed to list anonymous orgs" });
@@ -52,17 +52,17 @@ router.get("/anonymous-orgs/:id", requireApiKey, async (req, res) => {
 
     const { id } = parsed.data;
 
-    const [anonymousOrg] = await db
+    const [org] = await db
       .select()
-      .from(anonymousOrgs)
-      .where(eq(anonymousOrgs.id, id))
+      .from(orgs)
+      .where(eq(orgs.id, id))
       .limit(1);
 
-    if (!anonymousOrg) {
-      return res.status(404).json({ error: "Anonymous org not found" });
+    if (!org) {
+      return res.status(404).json({ error: "Org not found" });
     }
 
-    return res.json({ anonymousOrg });
+    return res.json({ org });
   } catch (error) {
     console.error("Get anonymous org error:", error);
     return res.status(500).json({ error: "Failed to get anonymous org" });
@@ -89,17 +89,17 @@ router.patch("/anonymous-orgs/:id", requireApiKey, async (req, res) => {
       return res.status(400).json({ error: "No fields to update" });
     }
 
-    const [anonymousOrg] = await db
-      .update(anonymousOrgs)
+    const [org] = await db
+      .update(orgs)
       .set({ ...updates, updatedAt: new Date() })
-      .where(eq(anonymousOrgs.id, id))
+      .where(eq(orgs.id, id))
       .returning();
 
-    if (!anonymousOrg) {
-      return res.status(404).json({ error: "Anonymous org not found" });
+    if (!org) {
+      return res.status(404).json({ error: "Org not found" });
     }
 
-    return res.json({ anonymousOrg });
+    return res.json({ org });
   } catch (error) {
     console.error("Update anonymous org error:", error);
     return res.status(500).json({ error: "Failed to update anonymous org" });

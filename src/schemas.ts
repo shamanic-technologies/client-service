@@ -19,7 +19,14 @@ const ErrorResponseSchema = z
 const UserSchema = z
   .object({
     id: z.string().uuid(),
-    clerkUserId: z.string(),
+    clerkUserId: z.string().nullable(),
+    appId: z.string().nullable(),
+    email: z.string().nullable(),
+    firstName: z.string().nullable(),
+    lastName: z.string().nullable(),
+    phone: z.string().nullable(),
+    orgId: z.string().uuid().nullable(),
+    metadata: z.record(z.string(), z.unknown()).nullable(),
     createdAt: z.string(),
     updatedAt: z.string(),
   })
@@ -28,7 +35,10 @@ const UserSchema = z
 const OrgSchema = z
   .object({
     id: z.string().uuid(),
-    clerkOrgId: z.string(),
+    clerkOrgId: z.string().nullable(),
+    appId: z.string().nullable(),
+    name: z.string().nullable(),
+    metadata: z.record(z.string(), z.unknown()).nullable(),
     createdAt: z.string(),
     updatedAt: z.string(),
   })
@@ -85,19 +95,69 @@ export const ClerkOrgIdParamSchema = z
   })
   .openapi("ClerkOrgIdParam");
 
-// --- Anonymous Orgs ---
+// --- Anonymous Users (operate on users table) ---
 
-const AnonymousOrgSchema = z
+export const CreateAnonymousUserBodySchema = z
+  .object({
+    appId: z.string().min(1),
+    email: z.string().email(),
+    firstName: z.string().optional(),
+    lastName: z.string().optional(),
+    phone: z.string().optional(),
+    orgId: z.string().uuid().optional(),
+    metadata: z.record(z.string(), z.unknown()).optional(),
+  })
+  .openapi("CreateAnonymousUserBody");
+
+export const UpdateAnonymousUserBodySchema = z
+  .object({
+    firstName: z.string().optional(),
+    lastName: z.string().optional(),
+    phone: z.string().optional(),
+    clerkUserId: z.string().nullable().optional(),
+    orgId: z.string().uuid().nullable().optional(),
+    metadata: z.record(z.string(), z.unknown()).nullable().optional(),
+  })
+  .openapi("UpdateAnonymousUserBody");
+
+export const AnonymousUserIdParamSchema = z
   .object({
     id: z.string().uuid(),
-    appId: z.string(),
-    name: z.string(),
-    clerkOrgId: z.string().nullable(),
-    metadata: z.record(z.string(), z.unknown()).nullable(),
-    createdAt: z.string(),
-    updatedAt: z.string(),
   })
-  .openapi("AnonymousOrg");
+  .openapi("AnonymousUserIdParam");
+
+export const AnonymousUserListQuerySchema = z
+  .object({
+    appId: z.string().min(1),
+    limit: z.coerce.number().int().min(1).max(200).default(50),
+    offset: z.coerce.number().int().min(0).default(0),
+  })
+  .openapi("AnonymousUserListQuery");
+
+const AnonymousUserCreateResponseSchema = z
+  .object({
+    user: UserSchema,
+    org: OrgSchema,
+    created: z.boolean(),
+  })
+  .openapi("AnonymousUserCreateResponse");
+
+const AnonymousUserGetResponseSchema = z
+  .object({
+    user: UserSchema,
+  })
+  .openapi("AnonymousUserGetResponse");
+
+const AnonymousUserListResponseSchema = z
+  .object({
+    users: z.array(UserSchema),
+    total: z.number(),
+    limit: z.number(),
+    offset: z.number(),
+  })
+  .openapi("AnonymousUserListResponse");
+
+// --- Anonymous Orgs (operate on orgs table) ---
 
 export const UpdateAnonymousOrgBodySchema = z
   .object({
@@ -123,100 +183,18 @@ export const AnonymousOrgListQuerySchema = z
 
 const AnonymousOrgGetResponseSchema = z
   .object({
-    anonymousOrg: AnonymousOrgSchema,
+    org: OrgSchema,
   })
   .openapi("AnonymousOrgGetResponse");
 
 const AnonymousOrgListResponseSchema = z
   .object({
-    anonymousOrgs: z.array(AnonymousOrgSchema),
+    orgs: z.array(OrgSchema),
     total: z.number(),
     limit: z.number(),
     offset: z.number(),
   })
   .openapi("AnonymousOrgListResponse");
-
-// --- Anonymous Users ---
-
-const AnonymousUserSchema = z
-  .object({
-    id: z.string().uuid(),
-    appId: z.string(),
-    email: z.string().email(),
-    firstName: z.string().nullable(),
-    lastName: z.string().nullable(),
-    phone: z.string().nullable(),
-    clerkUserId: z.string().nullable(),
-    clerkOrgId: z.string().nullable(),
-    anonymousOrgId: z.string().uuid().nullable(),
-    metadata: z.record(z.string(), z.unknown()).nullable(),
-    createdAt: z.string(),
-    updatedAt: z.string(),
-  })
-  .openapi("AnonymousUser");
-
-export const CreateAnonymousUserBodySchema = z
-  .object({
-    appId: z.string().min(1),
-    email: z.string().email(),
-    firstName: z.string().optional(),
-    lastName: z.string().optional(),
-    phone: z.string().optional(),
-    clerkUserId: z.string().optional(),
-    clerkOrgId: z.string().optional(),
-    anonymousOrgId: z.string().uuid().optional(),
-    metadata: z.record(z.string(), z.unknown()).optional(),
-  })
-  .openapi("CreateAnonymousUserBody");
-
-export const UpdateAnonymousUserBodySchema = z
-  .object({
-    firstName: z.string().optional(),
-    lastName: z.string().optional(),
-    phone: z.string().optional(),
-    clerkUserId: z.string().nullable().optional(),
-    clerkOrgId: z.string().nullable().optional(),
-    anonymousOrgId: z.string().uuid().nullable().optional(),
-    metadata: z.record(z.string(), z.unknown()).nullable().optional(),
-  })
-  .openapi("UpdateAnonymousUserBody");
-
-export const AnonymousUserIdParamSchema = z
-  .object({
-    id: z.string().uuid(),
-  })
-  .openapi("AnonymousUserIdParam");
-
-export const AnonymousUserListQuerySchema = z
-  .object({
-    appId: z.string().min(1),
-    limit: z.coerce.number().int().min(1).max(200).default(50),
-    offset: z.coerce.number().int().min(0).default(0),
-  })
-  .openapi("AnonymousUserListQuery");
-
-const AnonymousUserCreateResponseSchema = z
-  .object({
-    anonymousUser: AnonymousUserSchema,
-    anonymousOrg: AnonymousOrgSchema,
-    created: z.boolean(),
-  })
-  .openapi("AnonymousUserCreateResponse");
-
-const AnonymousUserGetResponseSchema = z
-  .object({
-    anonymousUser: AnonymousUserSchema,
-  })
-  .openapi("AnonymousUserGetResponse");
-
-const AnonymousUserListResponseSchema = z
-  .object({
-    anonymousUsers: z.array(AnonymousUserSchema),
-    total: z.number(),
-    limit: z.number(),
-    offset: z.number(),
-  })
-  .openapi("AnonymousUserListResponse");
 
 // --- Security schemes ---
 
@@ -414,7 +392,7 @@ registry.registerPath({
 registry.registerPath({
   method: "post",
   path: "/anonymous-users",
-  summary: "Create or upsert anonymous user",
+  summary: "Create or upsert anonymous user (auto-creates org)",
   security: [{ ApiKeyAuth: [] }],
   request: {
     body: {
@@ -423,7 +401,7 @@ registry.registerPath({
   },
   responses: {
     200: {
-      description: "Anonymous user created or updated",
+      description: "User created or updated",
       content: { "application/json": { schema: AnonymousUserCreateResponseSchema } },
     },
     400: {
@@ -479,7 +457,7 @@ registry.registerPath({
   },
   responses: {
     200: {
-      description: "Anonymous user found",
+      description: "User found",
       content: { "application/json": { schema: AnonymousUserGetResponseSchema } },
     },
     400: {
@@ -491,7 +469,7 @@ registry.registerPath({
       content: { "application/json": { schema: ErrorResponseSchema } },
     },
     404: {
-      description: "Anonymous user not found",
+      description: "User not found",
       content: { "application/json": { schema: ErrorResponseSchema } },
     },
     500: {
@@ -514,7 +492,7 @@ registry.registerPath({
   },
   responses: {
     200: {
-      description: "Anonymous user updated",
+      description: "User updated",
       content: { "application/json": { schema: AnonymousUserGetResponseSchema } },
     },
     400: {
@@ -526,7 +504,7 @@ registry.registerPath({
       content: { "application/json": { schema: ErrorResponseSchema } },
     },
     404: {
-      description: "Anonymous user not found",
+      description: "User not found",
       content: { "application/json": { schema: ErrorResponseSchema } },
     },
     500: {
@@ -576,7 +554,7 @@ registry.registerPath({
   },
   responses: {
     200: {
-      description: "Anonymous org found",
+      description: "Org found",
       content: { "application/json": { schema: AnonymousOrgGetResponseSchema } },
     },
     400: {
@@ -588,7 +566,7 @@ registry.registerPath({
       content: { "application/json": { schema: ErrorResponseSchema } },
     },
     404: {
-      description: "Anonymous org not found",
+      description: "Org not found",
       content: { "application/json": { schema: ErrorResponseSchema } },
     },
     500: {
@@ -611,7 +589,7 @@ registry.registerPath({
   },
   responses: {
     200: {
-      description: "Anonymous org updated",
+      description: "Org updated",
       content: { "application/json": { schema: AnonymousOrgGetResponseSchema } },
     },
     400: {
@@ -623,7 +601,7 @@ registry.registerPath({
       content: { "application/json": { schema: ErrorResponseSchema } },
     },
     404: {
-      description: "Anonymous org not found",
+      description: "Org not found",
       content: { "application/json": { schema: ErrorResponseSchema } },
     },
     500: {

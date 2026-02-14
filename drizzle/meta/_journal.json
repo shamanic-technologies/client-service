@@ -22,6 +22,13 @@
       "when": 1771065639314,
       "tag": "0002_same_thunderball",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1771078031808,
+      "tag": "0003_amazing_chronomancer",
+      "breakpoints": true
     }
   ]
 }
