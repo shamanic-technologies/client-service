@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { db } from "../db/index.js";
-import { anonymousUsers } from "../db/schema.js";
-import { eq, and, count } from "drizzle-orm";
+import { anonymousUsers, anonymousOrgs } from "../db/schema.js";
+import { eq, count } from "drizzle-orm";
 import { requireApiKey } from "../middleware/auth.js";
 import {
   CreateAnonymousUserBodySchema,
@@ -12,7 +12,7 @@ import {
 
 const router = Router();
 
-// Create or upsert anonymous user
+// Create or upsert anonymous user (auto-creates org if not provided)
 router.post("/anonymous-users", requireApiKey, async (req, res) => {
   try {
     const parsed = CreateAnonymousUserBodySchema.safeParse(req.body);
@@ -20,15 +20,36 @@ router.post("/anonymous-users", requireApiKey, async (req, res) => {
       return res.status(400).json({ error: "Invalid request body", details: parsed.error.flatten() });
     }
 
-    const { appId, email, ...rest } = parsed.data;
+    const { appId, email, anonymousOrgId: providedOrgId, ...rest } = parsed.data;
+
+    // Resolve or create anonymous org
+    let anonymousOrg;
+    if (providedOrgId) {
+      const [existing] = await db
+        .select()
+        .from(anonymousOrgs)
+        .where(eq(anonymousOrgs.id, providedOrgId))
+        .limit(1);
+
+      if (!existing) {
+        return res.status(400).json({ error: "Anonymous org not found" });
+      }
+      anonymousOrg = existing;
+    } else {
+      [anonymousOrg] = await db
+        .insert(anonymousOrgs)
+        .values({ appId })
+        .returning();
+    }
 
     const [anonymousUser] = await db
       .insert(anonymousUsers)
-      .values({ appId, email, ...rest })
+      .values({ appId, email, anonymousOrgId: anonymousOrg.id, ...rest })
       .onConflictDoUpdate({
         target: [anonymousUsers.appId, anonymousUsers.email],
         set: {
           ...rest,
+          anonymousOrgId: anonymousOrg.id,
           updatedAt: new Date(),
         },
       })
@@ -37,7 +58,7 @@ router.post("/anonymous-users", requireApiKey, async (req, res) => {
     // Check if it was created or updated by comparing timestamps
     const created = anonymousUser.createdAt.getTime() === anonymousUser.updatedAt.getTime();
 
-    return res.json({ anonymousUser, created });
+    return res.json({ anonymousUser, anonymousOrg, created });
   } catch (error) {
     console.error("Create anonymous user error:", error);
     return res.status(500).json({ error: "Failed to create anonymous user" });

@@ -10,6 +10,7 @@ describe.skipIf(!hasDb)("Anonymous Users Database", () => {
   let cleanTestData: typeof import("../helpers/test-db.js").cleanTestData;
   let closeDb: typeof import("../helpers/test-db.js").closeDb;
   let insertTestAnonymousUser: typeof import("../helpers/test-db.js").insertTestAnonymousUser;
+  let insertTestAnonymousOrg: typeof import("../helpers/test-db.js").insertTestAnonymousOrg;
 
   beforeEach(async () => {
     const dbMod = await import("../../src/db/index.js");
@@ -20,6 +21,7 @@ describe.skipIf(!hasDb)("Anonymous Users Database", () => {
     cleanTestData = helpersMod.cleanTestData;
     closeDb = helpersMod.closeDb;
     insertTestAnonymousUser = helpersMod.insertTestAnonymousUser;
+    insertTestAnonymousOrg = helpersMod.insertTestAnonymousOrg;
     await cleanTestData();
   });
 
@@ -99,6 +101,23 @@ describe.skipIf(!hasDb)("Anonymous Users Database", () => {
     expect(user.phone).toBeNull();
     expect(user.clerkUserId).toBeNull();
     expect(user.clerkOrgId).toBeNull();
+    expect(user.anonymousOrgId).toBeNull();
     expect(user.metadata).toBeNull();
+  });
+
+  it("should link anonymous user to anonymous org via FK", async () => {
+    const org = await insertTestAnonymousOrg({ appId: "polaritycourse" });
+    const user = await insertTestAnonymousUser({
+      appId: "polaritycourse",
+      email: "linked@example.com",
+      anonymousOrgId: org.id,
+    });
+
+    expect(user.anonymousOrgId).toBe(org.id);
+
+    const found = await db.query.anonymousUsers.findFirst({
+      where: eq(anonymousUsers.id, user.id),
+    });
+    expect(found?.anonymousOrgId).toBe(org.id);
   });
 });

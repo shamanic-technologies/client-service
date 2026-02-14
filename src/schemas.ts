@@ -85,6 +85,57 @@ export const ClerkOrgIdParamSchema = z
   })
   .openapi("ClerkOrgIdParam");
 
+// --- Anonymous Orgs ---
+
+const AnonymousOrgSchema = z
+  .object({
+    id: z.string().uuid(),
+    appId: z.string(),
+    name: z.string(),
+    clerkOrgId: z.string().nullable(),
+    metadata: z.record(z.string(), z.unknown()).nullable(),
+    createdAt: z.string(),
+    updatedAt: z.string(),
+  })
+  .openapi("AnonymousOrg");
+
+export const UpdateAnonymousOrgBodySchema = z
+  .object({
+    name: z.string().min(1).optional(),
+    clerkOrgId: z.string().nullable().optional(),
+    metadata: z.record(z.string(), z.unknown()).nullable().optional(),
+  })
+  .openapi("UpdateAnonymousOrgBody");
+
+export const AnonymousOrgIdParamSchema = z
+  .object({
+    id: z.string().uuid(),
+  })
+  .openapi("AnonymousOrgIdParam");
+
+export const AnonymousOrgListQuerySchema = z
+  .object({
+    appId: z.string().min(1),
+    limit: z.coerce.number().int().min(1).max(200).default(50),
+    offset: z.coerce.number().int().min(0).default(0),
+  })
+  .openapi("AnonymousOrgListQuery");
+
+const AnonymousOrgGetResponseSchema = z
+  .object({
+    anonymousOrg: AnonymousOrgSchema,
+  })
+  .openapi("AnonymousOrgGetResponse");
+
+const AnonymousOrgListResponseSchema = z
+  .object({
+    anonymousOrgs: z.array(AnonymousOrgSchema),
+    total: z.number(),
+    limit: z.number(),
+    offset: z.number(),
+  })
+  .openapi("AnonymousOrgListResponse");
+
 // --- Anonymous Users ---
 
 const AnonymousUserSchema = z
@@ -97,6 +148,7 @@ const AnonymousUserSchema = z
     phone: z.string().nullable(),
     clerkUserId: z.string().nullable(),
     clerkOrgId: z.string().nullable(),
+    anonymousOrgId: z.string().uuid().nullable(),
     metadata: z.record(z.string(), z.unknown()).nullable(),
     createdAt: z.string(),
     updatedAt: z.string(),
@@ -112,6 +164,7 @@ export const CreateAnonymousUserBodySchema = z
     phone: z.string().optional(),
     clerkUserId: z.string().optional(),
     clerkOrgId: z.string().optional(),
+    anonymousOrgId: z.string().uuid().optional(),
     metadata: z.record(z.string(), z.unknown()).optional(),
   })
   .openapi("CreateAnonymousUserBody");
@@ -123,6 +176,7 @@ export const UpdateAnonymousUserBodySchema = z
     phone: z.string().optional(),
     clerkUserId: z.string().nullable().optional(),
     clerkOrgId: z.string().nullable().optional(),
+    anonymousOrgId: z.string().uuid().nullable().optional(),
     metadata: z.record(z.string(), z.unknown()).nullable().optional(),
   })
   .openapi("UpdateAnonymousUserBody");
@@ -144,6 +198,7 @@ export const AnonymousUserListQuerySchema = z
 const AnonymousUserCreateResponseSchema = z
   .object({
     anonymousUser: AnonymousUserSchema,
+    anonymousOrg: AnonymousOrgSchema,
     created: z.boolean(),
   })
   .openapi("AnonymousUserCreateResponse");
@@ -472,6 +527,103 @@ registry.registerPath({
     },
     404: {
       description: "Anonymous user not found",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+    500: {
+      description: "Internal server error",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+  },
+});
+
+// --- Anonymous Orgs endpoints ---
+
+registry.registerPath({
+  method: "get",
+  path: "/anonymous-orgs",
+  summary: "List anonymous orgs by app ID",
+  security: [{ ApiKeyAuth: [] }],
+  request: {
+    query: AnonymousOrgListQuerySchema,
+  },
+  responses: {
+    200: {
+      description: "List of anonymous orgs",
+      content: { "application/json": { schema: AnonymousOrgListResponseSchema } },
+    },
+    400: {
+      description: "Invalid query parameters",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+    401: {
+      description: "Unauthorized",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+    500: {
+      description: "Internal server error",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+  },
+});
+
+registry.registerPath({
+  method: "get",
+  path: "/anonymous-orgs/{id}",
+  summary: "Get anonymous org by ID",
+  security: [{ ApiKeyAuth: [] }],
+  request: {
+    params: AnonymousOrgIdParamSchema,
+  },
+  responses: {
+    200: {
+      description: "Anonymous org found",
+      content: { "application/json": { schema: AnonymousOrgGetResponseSchema } },
+    },
+    400: {
+      description: "Invalid parameters",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+    401: {
+      description: "Unauthorized",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+    404: {
+      description: "Anonymous org not found",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+    500: {
+      description: "Internal server error",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+  },
+});
+
+registry.registerPath({
+  method: "patch",
+  path: "/anonymous-orgs/{id}",
+  summary: "Update anonymous org",
+  security: [{ ApiKeyAuth: [] }],
+  request: {
+    params: AnonymousOrgIdParamSchema,
+    body: {
+      content: { "application/json": { schema: UpdateAnonymousOrgBodySchema } },
+    },
+  },
+  responses: {
+    200: {
+      description: "Anonymous org updated",
+      content: { "application/json": { schema: AnonymousOrgGetResponseSchema } },
+    },
+    400: {
+      description: "Invalid parameters or body",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+    401: {
+      description: "Unauthorized",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+    404: {
+      description: "Anonymous org not found",
       content: { "application/json": { schema: ErrorResponseSchema } },
     },
     500: {

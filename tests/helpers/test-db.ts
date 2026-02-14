@@ -1,11 +1,12 @@
 import { db, sql } from "../../src/db/index.js";
-import { orgs, users, anonymousUsers } from "../../src/db/schema.js";
+import { orgs, users, anonymousUsers, anonymousOrgs } from "../../src/db/schema.js";
 
 /**
  * Clean all test data from the database
  */
 export async function cleanTestData() {
   await db.delete(anonymousUsers);
+  await db.delete(anonymousOrgs);
   await db.delete(users);
   await db.delete(orgs);
 }
@@ -37,10 +38,27 @@ export async function insertTestUser(data: { clerkUserId?: string } = {}) {
 }
 
 /**
+ * Insert a test anonymous org
+ */
+export async function insertTestAnonymousOrg(
+  data: { appId?: string; name?: string; metadata?: Record<string, unknown> } = {}
+) {
+  const [anonymousOrg] = await db
+    .insert(anonymousOrgs)
+    .values({
+      appId: data.appId || "test-app",
+      name: data.name,
+      metadata: data.metadata,
+    })
+    .returning();
+  return anonymousOrg;
+}
+
+/**
  * Insert a test anonymous user
  */
 export async function insertTestAnonymousUser(
-  data: { appId?: string; email?: string; firstName?: string; lastName?: string; phone?: string; metadata?: Record<string, unknown> } = {}
+  data: { appId?: string; email?: string; firstName?: string; lastName?: string; phone?: string; anonymousOrgId?: string; metadata?: Record<string, unknown> } = {}
 ) {
   const [anonymousUser] = await db
     .insert(anonymousUsers)
@@ -50,6 +68,7 @@ export async function insertTestAnonymousUser(
       firstName: data.firstName,
       lastName: data.lastName,
       phone: data.phone,
+      anonymousOrgId: data.anonymousOrgId,
       metadata: data.metadata,
     })
     .returning();

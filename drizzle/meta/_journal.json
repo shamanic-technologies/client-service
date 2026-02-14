@@ -15,6 +15,13 @@
       "when": 1771056245988,
       "tag": "0001_early_joshua_kane",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1771065639314,
+      "tag": "0002_same_thunderball",
+      "breakpoints": true
     }
   ]
 }
