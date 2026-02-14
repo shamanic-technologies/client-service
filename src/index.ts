@@ -11,6 +11,7 @@ import { db } from "./db/index.js";
 import healthRoutes from "./routes/health.js";
 import usersRoutes from "./routes/users.js";
 import orgsRoutes from "./routes/orgs.js";
+import anonymousUsersRoutes from "./routes/anonymous-users.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -45,6 +46,7 @@ app.get("/openapi.json", (_req, res) => {
 app.use(healthRoutes);
 app.use(usersRoutes);
 app.use(orgsRoutes);
+app.use(anonymousUsersRoutes);
 
 // 404 handler
 app.use((req, res) => {

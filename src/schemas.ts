@@ -85,6 +85,84 @@ export const ClerkOrgIdParamSchema = z
   })
   .openapi("ClerkOrgIdParam");
 
+// --- Anonymous Users ---
+
+const AnonymousUserSchema = z
+  .object({
+    id: z.string().uuid(),
+    appId: z.string(),
+    email: z.string().email(),
+    firstName: z.string().nullable(),
+    lastName: z.string().nullable(),
+    phone: z.string().nullable(),
+    clerkUserId: z.string().nullable(),
+    clerkOrgId: z.string().nullable(),
+    metadata: z.record(z.string(), z.unknown()).nullable(),
+    createdAt: z.string(),
+    updatedAt: z.string(),
+  })
+  .openapi("AnonymousUser");
+
+export const CreateAnonymousUserBodySchema = z
+  .object({
+    appId: z.string().min(1),
+    email: z.string().email(),
+    firstName: z.string().optional(),
+    lastName: z.string().optional(),
+    phone: z.string().optional(),
+    clerkUserId: z.string().optional(),
+    clerkOrgId: z.string().optional(),
+    metadata: z.record(z.string(), z.unknown()).optional(),
+  })
+  .openapi("CreateAnonymousUserBody");
+
+export const UpdateAnonymousUserBodySchema = z
+  .object({
+    firstName: z.string().optional(),
+    lastName: z.string().optional(),
+    phone: z.string().optional(),
+    clerkUserId: z.string().nullable().optional(),
+    clerkOrgId: z.string().nullable().optional(),
+    metadata: z.record(z.string(), z.unknown()).nullable().optional(),
+  })
+  .openapi("UpdateAnonymousUserBody");
+
+export const AnonymousUserIdParamSchema = z
+  .object({
+    id: z.string().uuid(),
+  })
+  .openapi("AnonymousUserIdParam");
+
+export const AnonymousUserListQuerySchema = z
+  .object({
+    appId: z.string().min(1),
+    limit: z.coerce.number().int().min(1).max(200).default(50),
+    offset: z.coerce.number().int().min(0).default(0),
+  })
+  .openapi("AnonymousUserListQuery");
+
+const AnonymousUserCreateResponseSchema = z
+  .object({
+    anonymousUser: AnonymousUserSchema,
+    created: z.boolean(),
+  })
+  .openapi("AnonymousUserCreateResponse");
+
+const AnonymousUserGetResponseSchema = z
+  .object({
+    anonymousUser: AnonymousUserSchema,
+  })
+  .openapi("AnonymousUserGetResponse");
+
+const AnonymousUserListResponseSchema = z
+  .object({
+    anonymousUsers: z.array(AnonymousUserSchema),
+    total: z.number(),
+    limit: z.number(),
+    offset: z.number(),
+  })
+  .openapi("AnonymousUserListResponse");
+
 // --- Security schemes ---
 
 registry.registerComponent("securitySchemes", "BearerAuth", {
@@ -267,6 +345,133 @@ registry.registerPath({
     },
     404: {
       description: "Org not found",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+    500: {
+      description: "Internal server error",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+  },
+});
+
+// --- Anonymous Users endpoints ---
+
+registry.registerPath({
+  method: "post",
+  path: "/anonymous-users",
+  summary: "Create or upsert anonymous user",
+  security: [{ ApiKeyAuth: [] }],
+  request: {
+    body: {
+      content: { "application/json": { schema: CreateAnonymousUserBodySchema } },
+    },
+  },
+  responses: {
+    200: {
+      description: "Anonymous user created or updated",
+      content: { "application/json": { schema: AnonymousUserCreateResponseSchema } },
+    },
+    400: {
+      description: "Invalid request body",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+    401: {
+      description: "Unauthorized",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+    500: {
+      description: "Internal server error",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+  },
+});
+
+registry.registerPath({
+  method: "get",
+  path: "/anonymous-users",
+  summary: "List anonymous users by app ID",
+  security: [{ ApiKeyAuth: [] }],
+  request: {
+    query: AnonymousUserListQuerySchema,
+  },
+  responses: {
+    200: {
+      description: "List of anonymous users",
+      content: { "application/json": { schema: AnonymousUserListResponseSchema } },
+    },
+    400: {
+      description: "Invalid query parameters",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+    401: {
+      description: "Unauthorized",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+    500: {
+      description: "Internal server error",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+  },
+});
+
+registry.registerPath({
+  method: "get",
+  path: "/anonymous-users/{id}",
+  summary: "Get anonymous user by ID",
+  security: [{ ApiKeyAuth: [] }],
+  request: {
+    params: AnonymousUserIdParamSchema,
+  },
+  responses: {
+    200: {
+      description: "Anonymous user found",
+      content: { "application/json": { schema: AnonymousUserGetResponseSchema } },
+    },
+    400: {
+      description: "Invalid parameters",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+    401: {
+      description: "Unauthorized",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+    404: {
+      description: "Anonymous user not found",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+    500: {
+      description: "Internal server error",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+  },
+});
+
+registry.registerPath({
+  method: "patch",
+  path: "/anonymous-users/{id}",
+  summary: "Update anonymous user",
+  security: [{ ApiKeyAuth: [] }],
+  request: {
+    params: AnonymousUserIdParamSchema,
+    body: {
+      content: { "application/json": { schema: UpdateAnonymousUserBodySchema } },
+    },
+  },
+  responses: {
+    200: {
+      description: "Anonymous user updated",
+      content: { "application/json": { schema: AnonymousUserGetResponseSchema } },
+    },
+    400: {
+      description: "Invalid parameters or body",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+    401: {
+      description: "Unauthorized",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+    404: {
+      description: "Anonymous user not found",
       content: { "application/json": { schema: ErrorResponseSchema } },
     },
     500: {

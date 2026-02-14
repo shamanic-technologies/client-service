@@ -15,6 +15,7 @@ vi.mock("@clerk/backend", () => ({
 
 // Set test environment variables
 process.env.CLERK_SECRET_KEY = "test_clerk_secret_key";
+process.env.CLIENT_SERVICE_API_KEY = process.env.CLIENT_SERVICE_API_KEY || "test_api_key";
 process.env.CLIENT_SERVICE_DATABASE_URL = process.env.CLIENT_SERVICE_DATABASE_URL || "postgresql://test:test@localhost/test";
 
 beforeAll(() => {
