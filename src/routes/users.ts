@@ -2,7 +2,7 @@ import { Router } from "express";
 import { db } from "../db/index.js";
 import { users } from "../db/schema.js";
 import { eq } from "drizzle-orm";
-import { requireAuth, requireApiKey, AuthenticatedRequest } from "../middleware/auth.js";
+import { requireAuth, requireApiKey, AuthenticatedRequest, clerk } from "../middleware/auth.js";
 import { ClerkUserIdParamSchema } from "../schemas.js";
 
 const router = Router();
@@ -12,6 +12,14 @@ router.post("/users/sync", requireAuth, async (req: AuthenticatedRequest, res) =
   try {
     const clerkUserId = req.clerkUserId!;
 
+    const clerkUser = await clerk.users.getUser(clerkUserId);
+    const profileData = {
+      email: clerkUser.emailAddresses[0]?.emailAddress ?? null,
+      firstName: clerkUser.firstName ?? null,
+      lastName: clerkUser.lastName ?? null,
+      imageUrl: clerkUser.imageUrl ?? null,
+    };
+
     const existing = await db
       .select()
       .from(users)
@@ -19,12 +27,17 @@ router.post("/users/sync", requireAuth, async (req: AuthenticatedRequest, res) =
       .limit(1);
 
     if (existing.length > 0) {
-      return res.json({ user: existing[0], created: false });
+      const [updated] = await db
+        .update(users)
+        .set({ ...profileData, updatedAt: new Date() })
+        .where(eq(users.clerkUserId, clerkUserId))
+        .returning();
+      return res.json({ user: updated, created: false });
     }
 
     const [newUser] = await db
       .insert(users)
-      .values({ clerkUserId })
+      .values({ clerkUserId, ...profileData })
       .returning();
 
     return res.json({ user: newUser, created: true });

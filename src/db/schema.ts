@@ -25,6 +25,7 @@ export const users = pgTable(
     email: text("email"),
     firstName: text("first_name"),
     lastName: text("last_name"),
+    imageUrl: text("image_url"),
     phone: text("phone"),
     orgId: uuid("org_id").references(() => orgs.id),
     metadata: jsonb("metadata"),

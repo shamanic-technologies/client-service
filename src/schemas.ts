@@ -23,6 +23,7 @@ const UserSchema = z
     email: z.string().nullable(),
     firstName: z.string().nullable(),
     lastName: z.string().nullable(),
+    imageUrl: z.string().nullable(),
     phone: z.string().nullable(),
     orgId: z.string().uuid().nullable(),
     metadata: z.record(z.string(), z.unknown()).nullable(),
@@ -101,6 +102,7 @@ export const CreateAnonymousUserBodySchema = z
     email: z.string().email(),
     firstName: z.string().optional(),
     lastName: z.string().optional(),
+    imageUrl: z.string().url().optional(),
     phone: z.string().optional(),
     orgId: z.string().uuid().optional(),
     metadata: z.record(z.string(), z.unknown()).optional(),
@@ -111,6 +113,7 @@ export const UpdateAnonymousUserBodySchema = z
   .object({
     firstName: z.string().optional(),
     lastName: z.string().optional(),
+    imageUrl: z.string().url().nullable().optional(),
     phone: z.string().optional(),
     orgId: z.string().uuid().nullable().optional(),
     metadata: z.record(z.string(), z.unknown()).nullable().optional(),
