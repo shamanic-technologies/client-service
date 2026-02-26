@@ -6,8 +6,8 @@ const clerk = createClerkClient({
 });
 
 export interface AuthenticatedRequest extends Request {
-  userId?: string;
-  orgId?: string;
+  clerkUserId?: string;
+  clerkOrgId?: string;
 }
 
 export async function requireAuth(
@@ -28,8 +28,8 @@ export async function requireAuth(
       secretKey: process.env.CLERK_SECRET_KEY!,
     });
 
-    req.userId = payload.sub;
-    req.orgId = payload.org_id;
+    req.clerkUserId = payload.sub;
+    req.clerkOrgId = payload.org_id;
     
     next();
   } catch (error) {

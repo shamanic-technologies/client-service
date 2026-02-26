@@ -7,7 +7,6 @@ const TEST_ORG_UUID = "660e8400-e29b-41d4-a716-446655440000";
 
 const mockOrg = {
   id: TEST_ORG_UUID,
-  clerkOrgId: null,
   appId: "polaritycourse",
   name: "Personal",
   metadata: null,
@@ -17,7 +16,6 @@ const mockOrg = {
 
 const mockUser = {
   id: TEST_UUID,
-  clerkUserId: null,
   appId: "polaritycourse",
   email: "test@example.com",
   firstName: "John",

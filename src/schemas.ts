@@ -19,7 +19,6 @@ const ErrorResponseSchema = z
 const UserSchema = z
   .object({
     id: z.string().uuid(),
-    clerkUserId: z.string().nullable(),
     appId: z.string().nullable(),
     email: z.string().nullable(),
     firstName: z.string().nullable(),
@@ -35,7 +34,6 @@ const UserSchema = z
 const OrgSchema = z
   .object({
     id: z.string().uuid(),
-    clerkOrgId: z.string().nullable(),
     appId: z.string().nullable(),
     name: z.string().nullable(),
     metadata: z.record(z.string(), z.unknown()).nullable(),
@@ -114,7 +112,6 @@ export const UpdateAnonymousUserBodySchema = z
     firstName: z.string().optional(),
     lastName: z.string().optional(),
     phone: z.string().optional(),
-    clerkUserId: z.string().nullable().optional(),
     orgId: z.string().uuid().nullable().optional(),
     metadata: z.record(z.string(), z.unknown()).nullable().optional(),
   })
@@ -162,7 +159,6 @@ const AnonymousUserListResponseSchema = z
 export const UpdateAnonymousOrgBodySchema = z
   .object({
     name: z.string().min(1).optional(),
-    clerkOrgId: z.string().nullable().optional(),
     metadata: z.record(z.string(), z.unknown()).nullable().optional(),
   })
   .openapi("UpdateAnonymousOrgBody");

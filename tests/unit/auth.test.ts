@@ -66,8 +66,8 @@ describe("Auth Middleware", () => {
       await requireAuth(mockReq as any, mockRes as Response, mockNext);
 
       expect(mockNext).toHaveBeenCalled();
-      expect((mockReq as any).userId).toBe("user_123");
-      expect((mockReq as any).orgId).toBe("org_456");
+      expect((mockReq as any).clerkUserId).toBe("user_123");
+      expect((mockReq as any).clerkOrgId).toBe("org_456");
     });
 
     it("should handle token verification errors", async () => {
