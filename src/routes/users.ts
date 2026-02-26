@@ -10,7 +10,7 @@ const router = Router();
 // Get or create user from Clerk ID
 router.post("/users/sync", requireAuth, async (req: AuthenticatedRequest, res) => {
   try {
-    const clerkUserId = req.userId!;
+    const clerkUserId = req.clerkUserId!;
 
     const existing = await db
       .select()
@@ -37,7 +37,7 @@ router.post("/users/sync", requireAuth, async (req: AuthenticatedRequest, res) =
 // Get user by Clerk ID
 router.get("/users/me", requireAuth, async (req: AuthenticatedRequest, res) => {
   try {
-    const clerkUserId = req.userId!;
+    const clerkUserId = req.clerkUserId!;
 
     const [user] = await db
       .select()

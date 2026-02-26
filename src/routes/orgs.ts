@@ -10,7 +10,7 @@ const router = Router();
 // Get or create org from Clerk Org ID
 router.post("/orgs/sync", requireAuth, async (req: AuthenticatedRequest, res) => {
   try {
-    const clerkOrgId = req.orgId;
+    const clerkOrgId = req.clerkOrgId;
 
     if (!clerkOrgId) {
       return res.status(400).json({ error: "No organization context" });
@@ -41,7 +41,7 @@ router.post("/orgs/sync", requireAuth, async (req: AuthenticatedRequest, res) =>
 // Get org by Clerk Org ID
 router.get("/orgs/me", requireAuth, async (req: AuthenticatedRequest, res) => {
   try {
-    const clerkOrgId = req.orgId;
+    const clerkOrgId = req.clerkOrgId;
 
     if (!clerkOrgId) {
       return res.status(400).json({ error: "No organization context" });
