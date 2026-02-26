@@ -20,6 +20,7 @@ const mockUser = {
   email: "test@example.com",
   firstName: "John",
   lastName: null,
+  imageUrl: null,
   phone: null,
   orgId: TEST_ORG_UUID,
   metadata: null,
@@ -128,6 +129,33 @@ describe("Anonymous Users Routes", () => {
       expect(res.body.org.name).toBe("Personal");
       expect(res.body).toHaveProperty("created");
     });
+
+    it("should accept imageUrl on create", async () => {
+      const res = await request(app)
+        .post("/anonymous-users")
+        .set(getApiKeyHeaders())
+        .send({
+          appId: "polaritycourse",
+          email: "test@example.com",
+          imageUrl: "https://example.com/photo.jpg",
+        });
+
+      expect(res.status).toBe(200);
+      expect(res.body.user).toBeDefined();
+    });
+
+    it("should reject invalid imageUrl on create", async () => {
+      const res = await request(app)
+        .post("/anonymous-users")
+        .set(getApiKeyHeaders())
+        .send({
+          appId: "polaritycourse",
+          email: "test@example.com",
+          imageUrl: "not-a-url",
+        });
+
+      expect(res.status).toBe(400);
+    });
   });
 
   describe("GET /anonymous-users", () => {
@@ -190,6 +218,44 @@ describe("Anonymous Users Routes", () => {
         .send({ firstName: "Jane" });
 
       expect(res.status).toBe(400);
+    });
+
+    it("should accept imageUrl on update", async () => {
+      const { db } = await import("../../src/db/index.js");
+      vi.mocked(db.update).mockReturnValue({
+        set: vi.fn().mockReturnValue({
+          where: vi.fn().mockReturnValue({
+            returning: vi.fn().mockResolvedValue([{ ...mockUser, imageUrl: "https://example.com/photo.jpg" }]),
+          }),
+        }),
+      } as any);
+
+      const res = await request(app)
+        .patch(`/anonymous-users/${TEST_UUID}`)
+        .set(getApiKeyHeaders())
+        .send({ imageUrl: "https://example.com/photo.jpg" });
+
+      expect(res.status).toBe(200);
+      expect(res.body.user.imageUrl).toBe("https://example.com/photo.jpg");
+    });
+
+    it("should accept null imageUrl on update", async () => {
+      const { db } = await import("../../src/db/index.js");
+      vi.mocked(db.update).mockReturnValue({
+        set: vi.fn().mockReturnValue({
+          where: vi.fn().mockReturnValue({
+            returning: vi.fn().mockResolvedValue([{ ...mockUser, imageUrl: null }]),
+          }),
+        }),
+      } as any);
+
+      const res = await request(app)
+        .patch(`/anonymous-users/${TEST_UUID}`)
+        .set(getApiKeyHeaders())
+        .send({ imageUrl: null });
+
+      expect(res.status).toBe(200);
+      expect(res.body.user.imageUrl).toBeNull();
     });
   });
 });

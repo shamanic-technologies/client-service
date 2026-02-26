@@ -29,6 +29,13 @@
       "when": 1771078031808,
       "tag": "0003_amazing_chronomancer",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1772078996289,
+      "tag": "0004_elite_bastion",
+      "breakpoints": true
     }
   ]
 }

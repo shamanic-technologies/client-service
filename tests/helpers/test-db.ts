@@ -56,7 +56,7 @@ export async function insertTestAnonymousOrg(
  * Insert a test user (anonymous/app-based)
  */
 export async function insertTestAnonymousUser(
-  data: { appId?: string; email?: string; firstName?: string; lastName?: string; phone?: string; orgId?: string; metadata?: Record<string, unknown> } = {}
+  data: { appId?: string; email?: string; firstName?: string; lastName?: string; imageUrl?: string; phone?: string; orgId?: string; metadata?: Record<string, unknown> } = {}
 ) {
   const [user] = await db
     .insert(users)
@@ -65,6 +65,7 @@ export async function insertTestAnonymousUser(
       email: data.email || `test-${Date.now()}@example.com`,
       firstName: data.firstName,
       lastName: data.lastName,
+      imageUrl: data.imageUrl,
       phone: data.phone,
       orgId: data.orgId,
       metadata: data.metadata,

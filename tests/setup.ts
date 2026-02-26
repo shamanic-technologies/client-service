@@ -8,7 +8,13 @@ vi.mock("@clerk/backend", () => ({
   }),
   createClerkClient: vi.fn().mockReturnValue({
     users: {
-      getUser: vi.fn().mockResolvedValue({ id: "user_test123" }),
+      getUser: vi.fn().mockResolvedValue({
+        id: "user_test123",
+        firstName: "Test",
+        lastName: "User",
+        imageUrl: "https://img.clerk.com/test123",
+        emailAddresses: [{ emailAddress: "test@example.com" }],
+      }),
     },
   }),
 }));

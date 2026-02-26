@@ -98,10 +98,26 @@ describe.skipIf(!hasDb)("Anonymous Users Database", () => {
 
     expect(user.firstName).toBeNull();
     expect(user.lastName).toBeNull();
+    expect(user.imageUrl).toBeNull();
     expect(user.phone).toBeNull();
     expect(user.clerkUserId).toBeNull();
     expect(user.orgId).toBeNull();
     expect(user.metadata).toBeNull();
+  });
+
+  it("should store and retrieve imageUrl", async () => {
+    const user = await insertTestAnonymousUser({
+      appId: "polaritycourse",
+      email: "avatar@example.com",
+      imageUrl: "https://example.com/photo.jpg",
+    });
+
+    expect(user.imageUrl).toBe("https://example.com/photo.jpg");
+
+    const found = await db.query.users.findFirst({
+      where: eq(users.id, user.id),
+    });
+    expect(found?.imageUrl).toBe("https://example.com/photo.jpg");
   });
 
   it("should link anonymous user to org via FK", async () => {
