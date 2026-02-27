@@ -20,27 +20,17 @@ router.post("/users/sync", requireAuth, async (req: AuthenticatedRequest, res) =
       imageUrl: clerkUser.imageUrl ?? null,
     };
 
-    const existing = await db
-      .select()
-      .from(users)
-      .where(eq(users.clerkUserId, clerkUserId))
-      .limit(1);
-
-    if (existing.length > 0) {
-      const [updated] = await db
-        .update(users)
-        .set({ ...profileData, updatedAt: new Date() })
-        .where(eq(users.clerkUserId, clerkUserId))
-        .returning();
-      return res.json({ user: updated, created: false });
-    }
-
-    const [newUser] = await db
+    const [user] = await db
       .insert(users)
       .values({ clerkUserId, ...profileData })
+      .onConflictDoUpdate({
+        target: users.clerkUserId,
+        set: { ...profileData, updatedAt: new Date() },
+      })
       .returning();
 
-    return res.json({ user: newUser, created: true });
+    const created = user.createdAt.getTime() === user.updatedAt.getTime();
+    return res.json({ user, created });
   } catch (error) {
     console.error("User sync error:", error);
     return res.status(500).json({ error: "Failed to sync user" });

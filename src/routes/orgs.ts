@@ -16,22 +16,17 @@ router.post("/orgs/sync", requireAuth, async (req: AuthenticatedRequest, res) =>
       return res.status(400).json({ error: "No organization context" });
     }
 
-    const existing = await db
-      .select()
-      .from(orgs)
-      .where(eq(orgs.clerkOrgId, clerkOrgId))
-      .limit(1);
-
-    if (existing.length > 0) {
-      return res.json({ org: existing[0], created: false });
-    }
-
-    const [newOrg] = await db
+    const [org] = await db
       .insert(orgs)
       .values({ clerkOrgId })
+      .onConflictDoUpdate({
+        target: orgs.clerkOrgId,
+        set: { updatedAt: new Date() },
+      })
       .returning();
 
-    return res.json({ org: newOrg, created: true });
+    const created = org.createdAt.getTime() === org.updatedAt.getTime();
+    return res.json({ org, created });
   } catch (error) {
     console.error("Org sync error:", error);
     return res.status(500).json({ error: "Failed to sync org" });
