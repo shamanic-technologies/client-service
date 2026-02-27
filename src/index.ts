@@ -9,10 +9,7 @@ import { dirname, join } from "path";
 import { migrate } from "drizzle-orm/postgres-js/migrator";
 import { db } from "./db/index.js";
 import healthRoutes from "./routes/health.js";
-import usersRoutes from "./routes/users.js";
-import orgsRoutes from "./routes/orgs.js";
-import anonymousUsersRoutes from "./routes/anonymous-users.js";
-import anonymousOrgsRoutes from "./routes/anonymous-orgs.js";
+import resolveRoutes from "./routes/resolve.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -45,10 +42,7 @@ app.get("/openapi.json", (_req, res) => {
 
 // Routes
 app.use(healthRoutes);
-app.use(usersRoutes);
-app.use(orgsRoutes);
-app.use(anonymousUsersRoutes);
-app.use(anonymousOrgsRoutes);
+app.use(resolveRoutes);
 
 // 404 handler
 app.use((req, res) => {
