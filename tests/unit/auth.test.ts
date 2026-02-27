@@ -1,149 +1,66 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { Request, Response, NextFunction } from "express";
+import { requireApiKey } from "../../src/middleware/auth.js";
 
-// Mock Clerk before importing auth module
-vi.mock("@clerk/backend", () => ({
-  verifyToken: vi.fn(),
-  createClerkClient: vi.fn().mockReturnValue({}),
-}));
-
-import { verifyToken } from "@clerk/backend";
-
-describe("Auth Middleware", () => {
+describe("requireApiKey middleware", () => {
   let mockReq: Partial<Request>;
   let mockRes: Partial<Response>;
   let mockNext: NextFunction;
+  let jsonMock: ReturnType<typeof vi.fn>;
+  let statusMock: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
-    vi.clearAllMocks();
-
-    mockReq = {
-      headers: {},
-    };
-    mockRes = {
-      status: vi.fn().mockReturnThis(),
-      json: vi.fn().mockReturnThis(),
-    };
+    jsonMock = vi.fn();
+    statusMock = vi.fn().mockReturnValue({ json: jsonMock });
+    mockReq = { headers: {} };
+    mockRes = { status: statusMock, json: jsonMock } as any;
     mockNext = vi.fn();
+    process.env.CLIENT_SERVICE_API_KEY = "test_api_key";
   });
 
-  describe("requireAuth", () => {
-    it("should reject requests without Authorization header", async () => {
-      // Import after mocking
-      const { requireAuth } = await import("../../src/middleware/auth.js");
+  it("should call next() with valid API key", () => {
+    mockReq.headers = { "x-api-key": "test_api_key" };
+    requireApiKey(mockReq as Request, mockRes as Response, mockNext);
+    expect(mockNext).toHaveBeenCalled();
+  });
 
-      mockReq.headers = {};
+  it("should reject missing API key", () => {
+    requireApiKey(mockReq as Request, mockRes as Response, mockNext);
+    expect(statusMock).toHaveBeenCalledWith(401);
+    expect(mockNext).not.toHaveBeenCalled();
+  });
 
-      await requireAuth(mockReq as any, mockRes as Response, mockNext);
+  it("should reject wrong API key", () => {
+    mockReq.headers = { "x-api-key": "wrong-key" };
+    requireApiKey(mockReq as Request, mockRes as Response, mockNext);
+    expect(statusMock).toHaveBeenCalledWith(401);
+    expect(mockNext).not.toHaveBeenCalled();
+  });
 
-      expect(mockRes.status).toHaveBeenCalledWith(401);
-      expect(mockRes.json).toHaveBeenCalledWith(
-        expect.objectContaining({ error: "Missing authorization header" })
-      );
-    });
-
-    it("should reject requests with invalid Bearer format", async () => {
-      const { requireAuth } = await import("../../src/middleware/auth.js");
-
-      mockReq.headers = { authorization: "Invalid token" };
-
-      await requireAuth(mockReq as any, mockRes as Response, mockNext);
-
-      expect(mockRes.status).toHaveBeenCalledWith(401);
-    });
-
-    it("should accept valid Bearer token", async () => {
-      const { requireAuth } = await import("../../src/middleware/auth.js");
-
-      // Mock successful token verification
-      vi.mocked(verifyToken).mockResolvedValueOnce({
-        sub: "user_123",
-        org_id: "org_456",
-      } as any);
-
-      mockReq.headers = { authorization: "Bearer valid-token" };
-
-      await requireAuth(mockReq as any, mockRes as Response, mockNext);
-
-      expect(mockNext).toHaveBeenCalled();
-      expect((mockReq as any).clerkUserId).toBe("user_123");
-      expect((mockReq as any).clerkOrgId).toBe("org_456");
-    });
-
-    it("should handle token verification errors", async () => {
-      const { requireAuth } = await import("../../src/middleware/auth.js");
-
-      // Mock failed token verification
-      vi.mocked(verifyToken).mockRejectedValueOnce(new Error("Invalid token"));
-
-      mockReq.headers = { authorization: "Bearer invalid-token" };
-
-      await requireAuth(mockReq as any, mockRes as Response, mockNext);
-
-      expect(mockRes.status).toHaveBeenCalledWith(401);
-      expect(mockRes.json).toHaveBeenCalledWith(
-        expect.objectContaining({ error: "Invalid token" })
-      );
-    });
+  it("should return 500 if CLIENT_SERVICE_API_KEY not configured", () => {
+    delete process.env.CLIENT_SERVICE_API_KEY;
+    mockReq.headers = { "x-api-key": "any-key" };
+    requireApiKey(mockReq as Request, mockRes as Response, mockNext);
+    expect(statusMock).toHaveBeenCalledWith(500);
+    expect(mockNext).not.toHaveBeenCalled();
   });
 });
 
-describe("Auth Middleware - JWT v2 org format", () => {
-  let mockReq: Partial<Request>;
-  let mockRes: Partial<Response>;
-  let mockNext: NextFunction;
-
-  beforeEach(() => {
-    vi.clearAllMocks();
-    mockReq = { headers: {} };
-    mockRes = { status: vi.fn().mockReturnThis(), json: vi.fn().mockReturnThis() };
-    mockNext = vi.fn();
+describe("Clerk removal verification", () => {
+  it("auth.ts should not import @clerk/backend", async () => {
+    const { readFileSync } = await import("fs");
+    const { resolve } = await import("path");
+    const content = readFileSync(resolve(__dirname, "../../src/middleware/auth.ts"), "utf-8");
+    expect(content).not.toContain("@clerk/backend");
+    expect(content).not.toContain("verifyToken");
+    expect(content).not.toContain("createClerkClient");
   });
 
-  it("should extract clerkOrgId from JWT v2 o.id claim when org_id is absent", async () => {
-    const { requireAuth } = await import("../../src/middleware/auth.js");
-
-    vi.mocked(verifyToken).mockResolvedValueOnce({
-      sub: "user_abc",
-      o: { id: "org_v2_789" },
-    } as any);
-
-    mockReq.headers = { authorization: "Bearer v2-token" };
-    await requireAuth(mockReq as any, mockRes as Response, mockNext);
-
-    expect(mockNext).toHaveBeenCalled();
-    expect((mockReq as any).clerkUserId).toBe("user_abc");
-    expect((mockReq as any).clerkOrgId).toBe("org_v2_789");
-  });
-
-  it("should prefer org_id (v1) over o.id (v2) when both present", async () => {
-    const { requireAuth } = await import("../../src/middleware/auth.js");
-
-    vi.mocked(verifyToken).mockResolvedValueOnce({
-      sub: "user_abc",
-      org_id: "org_v1_111",
-      o: { id: "org_v2_222" },
-    } as any);
-
-    mockReq.headers = { authorization: "Bearer both-token" };
-    await requireAuth(mockReq as any, mockRes as Response, mockNext);
-
-    expect(mockNext).toHaveBeenCalled();
-    expect((mockReq as any).clerkOrgId).toBe("org_v1_111");
-  });
-
-  it("should set clerkOrgId to undefined when no org claim is present", async () => {
-    const { requireAuth } = await import("../../src/middleware/auth.js");
-
-    vi.mocked(verifyToken).mockResolvedValueOnce({
-      sub: "user_no_org",
-    } as any);
-
-    mockReq.headers = { authorization: "Bearer no-org-token" };
-    await requireAuth(mockReq as any, mockRes as Response, mockNext);
-
-    expect(mockNext).toHaveBeenCalled();
-    expect((mockReq as any).clerkUserId).toBe("user_no_org");
-    expect((mockReq as any).clerkOrgId).toBeUndefined();
+  it("auth.ts should not export requireAuth or clerk", async () => {
+    const { readFileSync } = await import("fs");
+    const { resolve } = await import("path");
+    const content = readFileSync(resolve(__dirname, "../../src/middleware/auth.ts"), "utf-8");
+    expect(content).not.toContain("requireAuth");
+    expect(content).not.toContain("export { clerk }");
   });
 });

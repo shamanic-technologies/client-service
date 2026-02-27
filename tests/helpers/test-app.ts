@@ -1,10 +1,10 @@
 import express from "express";
 import cors from "cors";
 import healthRoutes from "../../src/routes/health.js";
+import resolveRoutes from "../../src/routes/resolve.js";
 
 /**
- * Create a minimal test Express app instance
- * Uses only health routes to avoid DB dependencies in basic tests
+ * Create a test Express app instance with all routes
  */
 export function createTestApp() {
   const app = express();
@@ -12,8 +12,8 @@ export function createTestApp() {
   app.use(cors());
   app.use(express.json());
 
-  // Health routes (no auth required)
   app.use(healthRoutes);
+  app.use(resolveRoutes);
 
   // 404 handler
   app.use((req, res) => {
@@ -21,14 +21,4 @@ export function createTestApp() {
   });
 
   return app;
-}
-
-/**
- * Get auth headers with mock Bearer token
- */
-export function getAuthHeaders() {
-  return {
-    Authorization: "Bearer mock-test-token",
-    "Content-Type": "application/json",
-  };
 }

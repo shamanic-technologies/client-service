@@ -16,33 +16,6 @@ const ErrorResponseSchema = z
   })
   .openapi("ErrorResponse");
 
-const UserSchema = z
-  .object({
-    id: z.string().uuid(),
-    appId: z.string().nullable(),
-    email: z.string().nullable(),
-    firstName: z.string().nullable(),
-    lastName: z.string().nullable(),
-    imageUrl: z.string().nullable(),
-    phone: z.string().nullable(),
-    orgId: z.string().uuid().nullable(),
-    metadata: z.record(z.string(), z.unknown()).nullable(),
-    createdAt: z.string(),
-    updatedAt: z.string(),
-  })
-  .openapi("User");
-
-const OrgSchema = z
-  .object({
-    id: z.string().uuid(),
-    appId: z.string().nullable(),
-    name: z.string().nullable(),
-    metadata: z.record(z.string(), z.unknown()).nullable(),
-    createdAt: z.string(),
-    updatedAt: z.string(),
-  })
-  .openapi("Org");
-
 // --- Health ---
 
 const HealthResponseSchema = z
@@ -52,155 +25,30 @@ const HealthResponseSchema = z
   })
   .openapi("HealthResponse");
 
-// --- Users ---
+// --- Resolve ---
 
-const UserSyncResponseSchema = z
-  .object({
-    user: UserSchema,
-    created: z.boolean(),
-  })
-  .openapi("UserSyncResponse");
-
-const UserGetResponseSchema = z
-  .object({
-    user: UserSchema,
-  })
-  .openapi("UserGetResponse");
-
-export const ClerkUserIdParamSchema = z
-  .object({
-    clerkUserId: z.string(),
-  })
-  .openapi("ClerkUserIdParam");
-
-// --- Orgs ---
-
-const OrgSyncResponseSchema = z
-  .object({
-    org: OrgSchema,
-    created: z.boolean(),
-  })
-  .openapi("OrgSyncResponse");
-
-const OrgGetResponseSchema = z
-  .object({
-    org: OrgSchema,
-  })
-  .openapi("OrgGetResponse");
-
-export const ClerkOrgIdParamSchema = z
-  .object({
-    clerkOrgId: z.string(),
-  })
-  .openapi("ClerkOrgIdParam");
-
-// --- Anonymous Users (operate on users table) ---
-
-export const CreateAnonymousUserBodySchema = z
+export const ResolveBodySchema = z
   .object({
     appId: z.string().min(1),
-    email: z.string().email(),
+    externalOrgId: z.string().min(1),
+    externalUserId: z.string().min(1),
+    email: z.string().email().optional(),
     firstName: z.string().optional(),
     lastName: z.string().optional(),
     imageUrl: z.string().url().optional(),
-    phone: z.string().optional(),
-    orgId: z.string().uuid().optional(),
-    metadata: z.record(z.string(), z.unknown()).optional(),
   })
-  .openapi("CreateAnonymousUserBody");
+  .openapi("ResolveBody");
 
-export const UpdateAnonymousUserBodySchema = z
+const ResolveResponseSchema = z
   .object({
-    firstName: z.string().optional(),
-    lastName: z.string().optional(),
-    imageUrl: z.string().url().nullable().optional(),
-    phone: z.string().optional(),
-    orgId: z.string().uuid().nullable().optional(),
-    metadata: z.record(z.string(), z.unknown()).nullable().optional(),
+    orgId: z.string().uuid(),
+    userId: z.string().uuid(),
+    orgCreated: z.boolean(),
+    userCreated: z.boolean(),
   })
-  .openapi("UpdateAnonymousUserBody");
-
-export const AnonymousUserIdParamSchema = z
-  .object({
-    id: z.string().uuid(),
-  })
-  .openapi("AnonymousUserIdParam");
-
-export const AnonymousUserListQuerySchema = z
-  .object({
-    appId: z.string().min(1),
-    limit: z.coerce.number().int().min(1).max(200).default(50),
-    offset: z.coerce.number().int().min(0).default(0),
-  })
-  .openapi("AnonymousUserListQuery");
-
-const AnonymousUserCreateResponseSchema = z
-  .object({
-    user: UserSchema,
-    org: OrgSchema,
-    created: z.boolean(),
-  })
-  .openapi("AnonymousUserCreateResponse");
-
-const AnonymousUserGetResponseSchema = z
-  .object({
-    user: UserSchema,
-  })
-  .openapi("AnonymousUserGetResponse");
-
-const AnonymousUserListResponseSchema = z
-  .object({
-    users: z.array(UserSchema),
-    total: z.number(),
-    limit: z.number(),
-    offset: z.number(),
-  })
-  .openapi("AnonymousUserListResponse");
-
-// --- Anonymous Orgs (operate on orgs table) ---
-
-export const UpdateAnonymousOrgBodySchema = z
-  .object({
-    name: z.string().min(1).optional(),
-    metadata: z.record(z.string(), z.unknown()).nullable().optional(),
-  })
-  .openapi("UpdateAnonymousOrgBody");
-
-export const AnonymousOrgIdParamSchema = z
-  .object({
-    id: z.string().uuid(),
-  })
-  .openapi("AnonymousOrgIdParam");
-
-export const AnonymousOrgListQuerySchema = z
-  .object({
-    appId: z.string().min(1),
-    limit: z.coerce.number().int().min(1).max(200).default(50),
-    offset: z.coerce.number().int().min(0).default(0),
-  })
-  .openapi("AnonymousOrgListQuery");
-
-const AnonymousOrgGetResponseSchema = z
-  .object({
-    org: OrgSchema,
-  })
-  .openapi("AnonymousOrgGetResponse");
-
-const AnonymousOrgListResponseSchema = z
-  .object({
-    orgs: z.array(OrgSchema),
-    total: z.number(),
-    limit: z.number(),
-    offset: z.number(),
-  })
-  .openapi("AnonymousOrgListResponse");
+  .openapi("ResolveResponse");
 
 // --- Security schemes ---
-
-registry.registerComponent("securitySchemes", "BearerAuth", {
-  type: "http",
-  scheme: "bearer",
-});
 
 registry.registerComponent("securitySchemes", "ApiKeyAuth", {
   type: "apiKey",
@@ -224,184 +72,18 @@ registry.registerPath({
 
 registry.registerPath({
   method: "post",
-  path: "/users/sync",
-  summary: "Get or create user from Clerk ID",
-  security: [{ BearerAuth: [] }],
-  responses: {
-    200: {
-      description: "User synced",
-      content: { "application/json": { schema: UserSyncResponseSchema } },
-    },
-    401: {
-      description: "Unauthorized",
-      content: { "application/json": { schema: ErrorResponseSchema } },
-    },
-    500: {
-      description: "Internal server error",
-      content: { "application/json": { schema: ErrorResponseSchema } },
-    },
-  },
-});
-
-registry.registerPath({
-  method: "get",
-  path: "/users/me",
-  summary: "Get current user by Clerk ID",
-  security: [{ BearerAuth: [] }],
-  responses: {
-    200: {
-      description: "User found",
-      content: { "application/json": { schema: UserGetResponseSchema } },
-    },
-    401: {
-      description: "Unauthorized",
-      content: { "application/json": { schema: ErrorResponseSchema } },
-    },
-    404: {
-      description: "User not found",
-      content: { "application/json": { schema: ErrorResponseSchema } },
-    },
-    500: {
-      description: "Internal server error",
-      content: { "application/json": { schema: ErrorResponseSchema } },
-    },
-  },
-});
-
-registry.registerPath({
-  method: "get",
-  path: "/users/by-clerk/{clerkUserId}",
-  summary: "Get internal user ID from Clerk ID (service-to-service)",
-  security: [{ ApiKeyAuth: [] }],
-  request: {
-    params: ClerkUserIdParamSchema,
-  },
-  responses: {
-    200: {
-      description: "User found",
-      content: { "application/json": { schema: UserGetResponseSchema } },
-    },
-    400: {
-      description: "Invalid parameters",
-      content: { "application/json": { schema: ErrorResponseSchema } },
-    },
-    401: {
-      description: "Unauthorized",
-      content: { "application/json": { schema: ErrorResponseSchema } },
-    },
-    404: {
-      description: "User not found",
-      content: { "application/json": { schema: ErrorResponseSchema } },
-    },
-    500: {
-      description: "Internal server error",
-      content: { "application/json": { schema: ErrorResponseSchema } },
-    },
-  },
-});
-
-registry.registerPath({
-  method: "post",
-  path: "/orgs/sync",
-  summary: "Get or create org from Clerk Org ID",
-  security: [{ BearerAuth: [] }],
-  responses: {
-    200: {
-      description: "Org synced",
-      content: { "application/json": { schema: OrgSyncResponseSchema } },
-    },
-    400: {
-      description: "No organization context",
-      content: { "application/json": { schema: ErrorResponseSchema } },
-    },
-    401: {
-      description: "Unauthorized",
-      content: { "application/json": { schema: ErrorResponseSchema } },
-    },
-    500: {
-      description: "Internal server error",
-      content: { "application/json": { schema: ErrorResponseSchema } },
-    },
-  },
-});
-
-registry.registerPath({
-  method: "get",
-  path: "/orgs/me",
-  summary: "Get current org by Clerk Org ID",
-  security: [{ BearerAuth: [] }],
-  responses: {
-    200: {
-      description: "Org found",
-      content: { "application/json": { schema: OrgGetResponseSchema } },
-    },
-    400: {
-      description: "No organization context",
-      content: { "application/json": { schema: ErrorResponseSchema } },
-    },
-    401: {
-      description: "Unauthorized",
-      content: { "application/json": { schema: ErrorResponseSchema } },
-    },
-    404: {
-      description: "Org not found",
-      content: { "application/json": { schema: ErrorResponseSchema } },
-    },
-    500: {
-      description: "Internal server error",
-      content: { "application/json": { schema: ErrorResponseSchema } },
-    },
-  },
-});
-
-registry.registerPath({
-  method: "get",
-  path: "/orgs/by-clerk/{clerkOrgId}",
-  summary: "Get internal org ID from Clerk Org ID (service-to-service)",
-  security: [{ ApiKeyAuth: [] }],
-  request: {
-    params: ClerkOrgIdParamSchema,
-  },
-  responses: {
-    200: {
-      description: "Org found",
-      content: { "application/json": { schema: OrgGetResponseSchema } },
-    },
-    400: {
-      description: "Invalid parameters",
-      content: { "application/json": { schema: ErrorResponseSchema } },
-    },
-    401: {
-      description: "Unauthorized",
-      content: { "application/json": { schema: ErrorResponseSchema } },
-    },
-    404: {
-      description: "Org not found",
-      content: { "application/json": { schema: ErrorResponseSchema } },
-    },
-    500: {
-      description: "Internal server error",
-      content: { "application/json": { schema: ErrorResponseSchema } },
-    },
-  },
-});
-
-// --- Anonymous Users endpoints ---
-
-registry.registerPath({
-  method: "post",
-  path: "/anonymous-users",
-  summary: "Create or upsert anonymous user (auto-creates org)",
+  path: "/resolve",
+  summary: "Resolve external org/user IDs to internal UUIDs (idempotent upsert)",
   security: [{ ApiKeyAuth: [] }],
   request: {
     body: {
-      content: { "application/json": { schema: CreateAnonymousUserBodySchema } },
+      content: { "application/json": { schema: ResolveBodySchema } },
     },
   },
   responses: {
     200: {
-      description: "User created or updated",
-      content: { "application/json": { schema: AnonymousUserCreateResponseSchema } },
+      description: "Identity resolved",
+      content: { "application/json": { schema: ResolveResponseSchema } },
     },
     400: {
       description: "Invalid request body",
@@ -409,198 +91,6 @@ registry.registerPath({
     },
     401: {
       description: "Unauthorized",
-      content: { "application/json": { schema: ErrorResponseSchema } },
-    },
-    500: {
-      description: "Internal server error",
-      content: { "application/json": { schema: ErrorResponseSchema } },
-    },
-  },
-});
-
-registry.registerPath({
-  method: "get",
-  path: "/anonymous-users",
-  summary: "List anonymous users by app ID",
-  security: [{ ApiKeyAuth: [] }],
-  request: {
-    query: AnonymousUserListQuerySchema,
-  },
-  responses: {
-    200: {
-      description: "List of anonymous users",
-      content: { "application/json": { schema: AnonymousUserListResponseSchema } },
-    },
-    400: {
-      description: "Invalid query parameters",
-      content: { "application/json": { schema: ErrorResponseSchema } },
-    },
-    401: {
-      description: "Unauthorized",
-      content: { "application/json": { schema: ErrorResponseSchema } },
-    },
-    500: {
-      description: "Internal server error",
-      content: { "application/json": { schema: ErrorResponseSchema } },
-    },
-  },
-});
-
-registry.registerPath({
-  method: "get",
-  path: "/anonymous-users/{id}",
-  summary: "Get anonymous user by ID",
-  security: [{ ApiKeyAuth: [] }],
-  request: {
-    params: AnonymousUserIdParamSchema,
-  },
-  responses: {
-    200: {
-      description: "User found",
-      content: { "application/json": { schema: AnonymousUserGetResponseSchema } },
-    },
-    400: {
-      description: "Invalid parameters",
-      content: { "application/json": { schema: ErrorResponseSchema } },
-    },
-    401: {
-      description: "Unauthorized",
-      content: { "application/json": { schema: ErrorResponseSchema } },
-    },
-    404: {
-      description: "User not found",
-      content: { "application/json": { schema: ErrorResponseSchema } },
-    },
-    500: {
-      description: "Internal server error",
-      content: { "application/json": { schema: ErrorResponseSchema } },
-    },
-  },
-});
-
-registry.registerPath({
-  method: "patch",
-  path: "/anonymous-users/{id}",
-  summary: "Update anonymous user",
-  security: [{ ApiKeyAuth: [] }],
-  request: {
-    params: AnonymousUserIdParamSchema,
-    body: {
-      content: { "application/json": { schema: UpdateAnonymousUserBodySchema } },
-    },
-  },
-  responses: {
-    200: {
-      description: "User updated",
-      content: { "application/json": { schema: AnonymousUserGetResponseSchema } },
-    },
-    400: {
-      description: "Invalid parameters or body",
-      content: { "application/json": { schema: ErrorResponseSchema } },
-    },
-    401: {
-      description: "Unauthorized",
-      content: { "application/json": { schema: ErrorResponseSchema } },
-    },
-    404: {
-      description: "User not found",
-      content: { "application/json": { schema: ErrorResponseSchema } },
-    },
-    500: {
-      description: "Internal server error",
-      content: { "application/json": { schema: ErrorResponseSchema } },
-    },
-  },
-});
-
-// --- Anonymous Orgs endpoints ---
-
-registry.registerPath({
-  method: "get",
-  path: "/anonymous-orgs",
-  summary: "List anonymous orgs by app ID",
-  security: [{ ApiKeyAuth: [] }],
-  request: {
-    query: AnonymousOrgListQuerySchema,
-  },
-  responses: {
-    200: {
-      description: "List of anonymous orgs",
-      content: { "application/json": { schema: AnonymousOrgListResponseSchema } },
-    },
-    400: {
-      description: "Invalid query parameters",
-      content: { "application/json": { schema: ErrorResponseSchema } },
-    },
-    401: {
-      description: "Unauthorized",
-      content: { "application/json": { schema: ErrorResponseSchema } },
-    },
-    500: {
-      description: "Internal server error",
-      content: { "application/json": { schema: ErrorResponseSchema } },
-    },
-  },
-});
-
-registry.registerPath({
-  method: "get",
-  path: "/anonymous-orgs/{id}",
-  summary: "Get anonymous org by ID",
-  security: [{ ApiKeyAuth: [] }],
-  request: {
-    params: AnonymousOrgIdParamSchema,
-  },
-  responses: {
-    200: {
-      description: "Org found",
-      content: { "application/json": { schema: AnonymousOrgGetResponseSchema } },
-    },
-    400: {
-      description: "Invalid parameters",
-      content: { "application/json": { schema: ErrorResponseSchema } },
-    },
-    401: {
-      description: "Unauthorized",
-      content: { "application/json": { schema: ErrorResponseSchema } },
-    },
-    404: {
-      description: "Org not found",
-      content: { "application/json": { schema: ErrorResponseSchema } },
-    },
-    500: {
-      description: "Internal server error",
-      content: { "application/json": { schema: ErrorResponseSchema } },
-    },
-  },
-});
-
-registry.registerPath({
-  method: "patch",
-  path: "/anonymous-orgs/{id}",
-  summary: "Update anonymous org",
-  security: [{ ApiKeyAuth: [] }],
-  request: {
-    params: AnonymousOrgIdParamSchema,
-    body: {
-      content: { "application/json": { schema: UpdateAnonymousOrgBodySchema } },
-    },
-  },
-  responses: {
-    200: {
-      description: "Org updated",
-      content: { "application/json": { schema: AnonymousOrgGetResponseSchema } },
-    },
-    400: {
-      description: "Invalid parameters or body",
-      content: { "application/json": { schema: ErrorResponseSchema } },
-    },
-    401: {
-      description: "Unauthorized",
-      content: { "application/json": { schema: ErrorResponseSchema } },
-    },
-    404: {
-      description: "Org not found",
       content: { "application/json": { schema: ErrorResponseSchema } },
     },
     500: {
