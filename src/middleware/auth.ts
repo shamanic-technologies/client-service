@@ -29,7 +29,9 @@ export async function requireAuth(
     });
 
     req.clerkUserId = payload.sub;
-    req.clerkOrgId = payload.org_id;
+    // Handle both JWT v1 (org_id) and v2 (o.id) formats
+    const orgClaim = payload.o as { id?: string } | undefined;
+    req.clerkOrgId = payload.org_id || orgClaim?.id;
     
     next();
   } catch (error) {
