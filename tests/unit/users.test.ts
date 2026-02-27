@@ -50,6 +50,9 @@ vi.mock("../../src/db/index.js", () => ({
     }),
     insert: vi.fn().mockReturnValue({
       values: vi.fn().mockReturnValue({
+        onConflictDoUpdate: vi.fn().mockReturnValue({
+          returning: vi.fn().mockResolvedValue([mockDbUser]),
+        }),
         returning: vi.fn().mockResolvedValue([mockDbUser]),
       }),
     }),
@@ -100,12 +103,17 @@ describe("Users Routes", () => {
     });
 
     it("should sync profile data on existing user", async () => {
+      const existingUser = {
+        ...mockDbUser,
+        updatedAt: new Date("2024-01-02T00:00:00Z"), // different from createdAt → not created
+      };
       const { db } = await import("../../src/db/index.js");
-      vi.mocked(db.select).mockReturnValue({
-        from: vi.fn().mockReturnValue({
-          where: vi.fn().mockReturnValue({
-            limit: vi.fn().mockResolvedValue([mockDbUser]),
+      vi.mocked(db.insert).mockReturnValue({
+        values: vi.fn().mockReturnValue({
+          onConflictDoUpdate: vi.fn().mockReturnValue({
+            returning: vi.fn().mockResolvedValue([existingUser]),
           }),
+          returning: vi.fn().mockResolvedValue([existingUser]),
         }),
       } as any);
 
