@@ -48,6 +48,41 @@ const ResolveResponseSchema = z
   })
   .openapi("ResolveResponse");
 
+// --- List Users ---
+
+export const ListUsersQuerySchema = z
+  .object({
+    appId: z.string().min(1),
+    orgId: z.string().uuid().optional(),
+    externalOrgId: z.string().min(1).optional(),
+    email: z.string().optional(),
+    limit: z.coerce.number().int().min(1).max(200).default(50),
+    offset: z.coerce.number().int().min(0).default(0),
+  })
+  .openapi("ListUsersQuery");
+
+const ListUsersUserSchema = z
+  .object({
+    id: z.string().uuid(),
+    externalId: z.string().nullable(),
+    email: z.string().nullable(),
+    firstName: z.string().nullable(),
+    lastName: z.string().nullable(),
+    imageUrl: z.string().nullable(),
+    phone: z.string().nullable(),
+    createdAt: z.string(),
+  })
+  .openapi("ListUsersUser");
+
+const ListUsersResponseSchema = z
+  .object({
+    users: z.array(ListUsersUserSchema),
+    total: z.number().int(),
+    limit: z.number().int(),
+    offset: z.number().int(),
+  })
+  .openapi("ListUsersResponse");
+
 // --- Security schemes ---
 
 registry.registerComponent("securitySchemes", "ApiKeyAuth", {
@@ -66,6 +101,34 @@ registry.registerPath({
     200: {
       description: "Service is healthy",
       content: { "application/json": { schema: HealthResponseSchema } },
+    },
+  },
+});
+
+registry.registerPath({
+  method: "get",
+  path: "/users",
+  summary: "List users filtered by app and org",
+  security: [{ ApiKeyAuth: [] }],
+  request: {
+    query: ListUsersQuerySchema,
+  },
+  responses: {
+    200: {
+      description: "Users list",
+      content: { "application/json": { schema: ListUsersResponseSchema } },
+    },
+    400: {
+      description: "Invalid query parameters",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+    401: {
+      description: "Unauthorized",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+    500: {
+      description: "Internal server error",
+      content: { "application/json": { schema: ErrorResponseSchema } },
     },
   },
 });
