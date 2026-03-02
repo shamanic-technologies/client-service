@@ -22,7 +22,6 @@ describe("POST /resolve", () => {
       .post("/resolve")
       .set("x-api-key", API_KEY)
       .send({
-        appId: "my-app",
         externalOrgId: "clerk_org_123",
         externalUserId: "clerk_user_456",
       });
@@ -39,7 +38,6 @@ describe("POST /resolve", () => {
       .post("/resolve")
       .set("x-api-key", API_KEY)
       .send({
-        appId: "my-app",
         externalOrgId: "org-1",
         externalUserId: "user-1",
       });
@@ -48,7 +46,6 @@ describe("POST /resolve", () => {
       .post("/resolve")
       .set("x-api-key", API_KEY)
       .send({
-        appId: "my-app",
         externalOrgId: "org-1",
         externalUserId: "user-1",
       });
@@ -60,35 +57,11 @@ describe("POST /resolve", () => {
     expect(second.body.userCreated).toBe(false);
   });
 
-  it("should scope external IDs per app", async () => {
-    const app1 = await request(app)
-      .post("/resolve")
-      .set("x-api-key", API_KEY)
-      .send({
-        appId: "app-a",
-        externalOrgId: "same-org",
-        externalUserId: "same-user",
-      });
-
-    const app2 = await request(app)
-      .post("/resolve")
-      .set("x-api-key", API_KEY)
-      .send({
-        appId: "app-b",
-        externalOrgId: "same-org",
-        externalUserId: "same-user",
-      });
-
-    expect(app1.body.orgId).not.toBe(app2.body.orgId);
-    expect(app1.body.userId).not.toBe(app2.body.userId);
-  });
-
   it("should pass through profile data on create", async () => {
     const res = await request(app)
       .post("/resolve")
       .set("x-api-key", API_KEY)
       .send({
-        appId: "my-app",
         externalOrgId: "org-profile",
         externalUserId: "user-profile",
         email: "test@example.com",
@@ -100,24 +73,11 @@ describe("POST /resolve", () => {
     expect(res.body.userCreated).toBe(true);
   });
 
-  it("should reject missing appId", async () => {
-    const res = await request(app)
-      .post("/resolve")
-      .set("x-api-key", API_KEY)
-      .send({
-        externalOrgId: "org-1",
-        externalUserId: "user-1",
-      });
-
-    expect(res.status).toBe(400);
-  });
-
   it("should reject missing externalOrgId", async () => {
     const res = await request(app)
       .post("/resolve")
       .set("x-api-key", API_KEY)
       .send({
-        appId: "my-app",
         externalUserId: "user-1",
       });
 
@@ -129,7 +89,6 @@ describe("POST /resolve", () => {
       .post("/resolve")
       .set("x-api-key", API_KEY)
       .send({
-        appId: "my-app",
         externalOrgId: "org-1",
       });
 
@@ -140,7 +99,6 @@ describe("POST /resolve", () => {
     const res = await request(app)
       .post("/resolve")
       .send({
-        appId: "my-app",
         externalOrgId: "org-1",
         externalUserId: "user-1",
       });
@@ -153,7 +111,6 @@ describe("POST /resolve", () => {
       .post("/resolve")
       .set("x-api-key", "wrong-key")
       .send({
-        appId: "my-app",
         externalOrgId: "org-1",
         externalUserId: "user-1",
       });

@@ -17,7 +17,7 @@ router.get("/users", requireApiKey, async (req, res) => {
       return res.status(400).json({ error: "Invalid query parameters", details: parsed.error.flatten() });
     }
 
-    const { appId, orgId, externalOrgId, email, limit, offset } = parsed.data;
+    const { orgId, externalOrgId, email, limit, offset } = parsed.data;
 
     // Resolve orgId from externalOrgId if needed
     let resolvedOrgId = orgId;
@@ -25,7 +25,7 @@ router.get("/users", requireApiKey, async (req, res) => {
       const [org] = await db
         .select({ id: orgs.id })
         .from(orgs)
-        .where(and(eq(orgs.appId, appId), eq(orgs.externalId, externalOrgId)))
+        .where(eq(orgs.externalId, externalOrgId))
         .limit(1);
 
       if (!org) {
@@ -35,7 +35,7 @@ router.get("/users", requireApiKey, async (req, res) => {
     }
 
     // Build where conditions
-    const conditions = [eq(users.appId, appId)];
+    const conditions: ReturnType<typeof eq>[] = [];
     if (resolvedOrgId) {
       conditions.push(eq(users.orgId, resolvedOrgId));
     }
@@ -43,7 +43,7 @@ router.get("/users", requireApiKey, async (req, res) => {
       conditions.push(eq(users.email, email));
     }
 
-    const where = and(...conditions);
+    const where = conditions.length > 0 ? and(...conditions) : undefined;
 
     // Run data + count queries in parallel
     const [rows, [{ total }]] = await Promise.all([

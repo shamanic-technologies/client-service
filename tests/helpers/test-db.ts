@@ -12,11 +12,10 @@ export async function cleanTestData() {
 /**
  * Insert a test org
  */
-export async function insertTestOrg(data: { appId?: string; externalId?: string; name?: string } = {}) {
+export async function insertTestOrg(data: { externalId?: string; name?: string } = {}) {
   const [org] = await db
     .insert(orgs)
     .values({
-      appId: data.appId || "test-app",
       externalId: data.externalId || `ext-org-${Date.now()}`,
       name: data.name,
     })
@@ -28,7 +27,6 @@ export async function insertTestOrg(data: { appId?: string; externalId?: string;
  * Insert a test user
  */
 export async function insertTestUser(data: {
-  appId?: string;
   externalId?: string;
   email?: string;
   firstName?: string;
@@ -38,7 +36,6 @@ export async function insertTestUser(data: {
   const [user] = await db
     .insert(users)
     .values({
-      appId: data.appId || "test-app",
       externalId: data.externalId || `ext-user-${Date.now()}`,
       email: data.email,
       firstName: data.firstName,
