@@ -34,11 +34,10 @@ describe.skipIf(!hasDb)("Client Service Database", () => {
 
   describe("orgs table", () => {
     it("should create and query an org", async () => {
-      const org = await insertTestOrg({ appId: "test-app", externalId: "ext-org-123" });
+      const org = await insertTestOrg({ externalId: "ext-org-123" });
 
       expect(org.id).toBeDefined();
       expect(org.externalId).toBe("ext-org-123");
-      expect(org.appId).toBe("test-app");
 
       const found = await db.query.orgs.findFirst({
         where: eq(orgs.id, org.id),
@@ -46,24 +45,18 @@ describe.skipIf(!hasDb)("Client Service Database", () => {
       expect(found?.externalId).toBe("ext-org-123");
     });
 
-    it("should enforce unique (appId, externalId)", async () => {
-      await insertTestOrg({ appId: "test-app", externalId: "org-unique" });
+    it("should enforce unique externalId", async () => {
+      await insertTestOrg({ externalId: "org-unique" });
 
       await expect(
-        insertTestOrg({ appId: "test-app", externalId: "org-unique" })
+        insertTestOrg({ externalId: "org-unique" })
       ).rejects.toThrow();
-    });
-
-    it("should allow same externalId for different apps", async () => {
-      await insertTestOrg({ appId: "app-a", externalId: "same-id" });
-      const org2 = await insertTestOrg({ appId: "app-b", externalId: "same-id" });
-      expect(org2.id).toBeDefined();
     });
   });
 
   describe("users table", () => {
     it("should create and query a user", async () => {
-      const user = await insertTestUser({ appId: "test-app", externalId: "ext-user-123" });
+      const user = await insertTestUser({ externalId: "ext-user-123" });
 
       expect(user.id).toBeDefined();
       expect(user.externalId).toBe("ext-user-123");
@@ -74,18 +67,12 @@ describe.skipIf(!hasDb)("Client Service Database", () => {
       expect(found?.externalId).toBe("ext-user-123");
     });
 
-    it("should enforce unique (appId, externalId)", async () => {
-      await insertTestUser({ appId: "test-app", externalId: "user-unique" });
+    it("should enforce unique externalId", async () => {
+      await insertTestUser({ externalId: "user-unique" });
 
       await expect(
-        insertTestUser({ appId: "test-app", externalId: "user-unique" })
+        insertTestUser({ externalId: "user-unique" })
       ).rejects.toThrow();
-    });
-
-    it("should allow same externalId for different apps", async () => {
-      await insertTestUser({ appId: "app-a", externalId: "same-id" });
-      const user2 = await insertTestUser({ appId: "app-b", externalId: "same-id" });
-      expect(user2.id).toBeDefined();
     });
   });
 });

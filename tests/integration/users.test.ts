@@ -4,7 +4,6 @@ import { createTestApp } from "../helpers/test-app.js";
 import { cleanTestData, insertTestOrg, insertTestUser, closeDb } from "../helpers/test-db.js";
 
 const API_KEY = "test_api_key";
-const APP_ID = "test-app";
 
 describe("GET /users", () => {
   const app = createTestApp();
@@ -19,14 +18,14 @@ describe("GET /users", () => {
   });
 
   it("should list users for an org by internal orgId", async () => {
-    const org = await insertTestOrg({ appId: APP_ID, externalId: "org-1" });
-    await insertTestUser({ appId: APP_ID, externalId: "user-1", email: "a@test.com", orgId: org.id });
-    await insertTestUser({ appId: APP_ID, externalId: "user-2", email: "b@test.com", orgId: org.id });
+    const org = await insertTestOrg({ externalId: "org-1" });
+    await insertTestUser({ externalId: "user-1", email: "a@test.com", orgId: org.id });
+    await insertTestUser({ externalId: "user-2", email: "b@test.com", orgId: org.id });
 
     const res = await request(app)
       .get("/users")
       .set("x-api-key", API_KEY)
-      .query({ appId: APP_ID, orgId: org.id });
+      .query({ orgId: org.id });
 
     expect(res.status).toBe(200);
     expect(res.body.users).toHaveLength(2);
@@ -39,13 +38,13 @@ describe("GET /users", () => {
   });
 
   it("should list users by externalOrgId", async () => {
-    const org = await insertTestOrg({ appId: APP_ID, externalId: "ext-org-abc" });
-    await insertTestUser({ appId: APP_ID, externalId: "user-1", email: "a@test.com", orgId: org.id });
+    const org = await insertTestOrg({ externalId: "ext-org-abc" });
+    await insertTestUser({ externalId: "user-1", email: "a@test.com", orgId: org.id });
 
     const res = await request(app)
       .get("/users")
       .set("x-api-key", API_KEY)
-      .query({ appId: APP_ID, externalOrgId: "ext-org-abc" });
+      .query({ externalOrgId: "ext-org-abc" });
 
     expect(res.status).toBe(200);
     expect(res.body.users).toHaveLength(1);
@@ -56,7 +55,7 @@ describe("GET /users", () => {
     const res = await request(app)
       .get("/users")
       .set("x-api-key", API_KEY)
-      .query({ appId: APP_ID, externalOrgId: "does-not-exist" });
+      .query({ externalOrgId: "does-not-exist" });
 
     expect(res.status).toBe(200);
     expect(res.body.users).toHaveLength(0);
@@ -64,14 +63,14 @@ describe("GET /users", () => {
   });
 
   it("should filter by email", async () => {
-    const org = await insertTestOrg({ appId: APP_ID, externalId: "org-1" });
-    await insertTestUser({ appId: APP_ID, externalId: "user-1", email: "target@test.com", orgId: org.id });
-    await insertTestUser({ appId: APP_ID, externalId: "user-2", email: "other@test.com", orgId: org.id });
+    const org = await insertTestOrg({ externalId: "org-1" });
+    await insertTestUser({ externalId: "user-1", email: "target@test.com", orgId: org.id });
+    await insertTestUser({ externalId: "user-2", email: "other@test.com", orgId: org.id });
 
     const res = await request(app)
       .get("/users")
       .set("x-api-key", API_KEY)
-      .query({ appId: APP_ID, orgId: org.id, email: "target@test.com" });
+      .query({ orgId: org.id, email: "target@test.com" });
 
     expect(res.status).toBe(200);
     expect(res.body.users).toHaveLength(1);
@@ -79,32 +78,16 @@ describe("GET /users", () => {
     expect(res.body.total).toBe(1);
   });
 
-  it("should scope users by appId", async () => {
-    const orgA = await insertTestOrg({ appId: "app-a", externalId: "org-1" });
-    const orgB = await insertTestOrg({ appId: "app-b", externalId: "org-1" });
-    await insertTestUser({ appId: "app-a", externalId: "user-1", email: "a@test.com", orgId: orgA.id });
-    await insertTestUser({ appId: "app-b", externalId: "user-1", email: "b@test.com", orgId: orgB.id });
-
-    const res = await request(app)
-      .get("/users")
-      .set("x-api-key", API_KEY)
-      .query({ appId: "app-a", orgId: orgA.id });
-
-    expect(res.status).toBe(200);
-    expect(res.body.users).toHaveLength(1);
-    expect(res.body.users[0].email).toBe("a@test.com");
-  });
-
   it("should paginate results", async () => {
-    const org = await insertTestOrg({ appId: APP_ID, externalId: "org-1" });
+    const org = await insertTestOrg({ externalId: "org-1" });
     for (let i = 0; i < 5; i++) {
-      await insertTestUser({ appId: APP_ID, externalId: `user-${i}`, orgId: org.id });
+      await insertTestUser({ externalId: `user-${i}`, orgId: org.id });
     }
 
     const res = await request(app)
       .get("/users")
       .set("x-api-key", API_KEY)
-      .query({ appId: APP_ID, orgId: org.id, limit: 2, offset: 0 });
+      .query({ orgId: org.id, limit: 2, offset: 0 });
 
     expect(res.status).toBe(200);
     expect(res.body.users).toHaveLength(2);
@@ -115,7 +98,7 @@ describe("GET /users", () => {
     const res2 = await request(app)
       .get("/users")
       .set("x-api-key", API_KEY)
-      .query({ appId: APP_ID, orgId: org.id, limit: 2, offset: 2 });
+      .query({ orgId: org.id, limit: 2, offset: 2 });
 
     expect(res2.status).toBe(200);
     expect(res2.body.users).toHaveLength(2);
@@ -124,40 +107,29 @@ describe("GET /users", () => {
   });
 
   it("should return empty list for org with no users", async () => {
-    const org = await insertTestOrg({ appId: APP_ID, externalId: "empty-org" });
+    const org = await insertTestOrg({ externalId: "empty-org" });
 
     const res = await request(app)
       .get("/users")
       .set("x-api-key", API_KEY)
-      .query({ appId: APP_ID, orgId: org.id });
+      .query({ orgId: org.id });
 
     expect(res.status).toBe(200);
     expect(res.body.users).toHaveLength(0);
     expect(res.body.total).toBe(0);
   });
 
-  it("should return 400 when appId is missing", async () => {
-    const res = await request(app)
-      .get("/users")
-      .set("x-api-key", API_KEY)
-      .query({});
-
-    expect(res.status).toBe(400);
-    expect(res.body.error).toBeDefined();
-  });
-
   it("should return 401 without API key", async () => {
     const res = await request(app)
       .get("/users")
-      .query({ appId: APP_ID });
+      .query({});
 
     expect(res.status).toBe(401);
   });
 
   it("should return all user fields", async () => {
-    const org = await insertTestOrg({ appId: APP_ID, externalId: "org-1" });
+    const org = await insertTestOrg({ externalId: "org-1" });
     await insertTestUser({
-      appId: APP_ID,
       externalId: "user-full",
       email: "full@test.com",
       firstName: "Kevin",
@@ -168,7 +140,7 @@ describe("GET /users", () => {
     const res = await request(app)
       .get("/users")
       .set("x-api-key", API_KEY)
-      .query({ appId: APP_ID, orgId: org.id });
+      .query({ orgId: org.id });
 
     expect(res.status).toBe(200);
     const user = res.body.users[0];

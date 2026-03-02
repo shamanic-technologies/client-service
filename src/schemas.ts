@@ -29,7 +29,6 @@ const HealthResponseSchema = z
 
 export const ResolveBodySchema = z
   .object({
-    appId: z.string().min(1),
     externalOrgId: z.string().min(1),
     externalUserId: z.string().min(1),
     email: z.string().email().optional(),
@@ -52,7 +51,6 @@ const ResolveResponseSchema = z
 
 export const ListUsersQuerySchema = z
   .object({
-    appId: z.string().min(1),
     orgId: z.string().uuid().optional(),
     externalOrgId: z.string().min(1).optional(),
     email: z.string().optional(),
@@ -108,7 +106,7 @@ registry.registerPath({
 registry.registerPath({
   method: "get",
   path: "/users",
-  summary: "List users filtered by app and org",
+  summary: "List users filtered by org",
   security: [{ ApiKeyAuth: [] }],
   request: {
     query: ListUsersQuerySchema,

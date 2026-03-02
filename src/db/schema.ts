@@ -5,14 +5,13 @@ export const orgs = pgTable(
   {
     id: uuid("id").primaryKey().defaultRandom(),
     externalId: text("external_id"),
-    appId: text("app_id"),
     name: text("name"),
     metadata: jsonb("metadata"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
-    uniqueIndex("idx_orgs_app_external_id").on(table.appId, table.externalId),
+    uniqueIndex("idx_orgs_external_id").on(table.externalId),
   ]
 );
 
@@ -21,7 +20,6 @@ export const users = pgTable(
   {
     id: uuid("id").primaryKey().defaultRandom(),
     externalId: text("external_id"),
-    appId: text("app_id"),
     email: text("email"),
     firstName: text("first_name"),
     lastName: text("last_name"),
@@ -33,7 +31,7 @@ export const users = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
-    uniqueIndex("idx_users_app_external_id").on(table.appId, table.externalId),
+    uniqueIndex("idx_users_external_id").on(table.externalId),
   ]
 );
 

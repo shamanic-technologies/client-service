@@ -17,14 +17,14 @@ router.post("/resolve", requireApiKey, async (req, res) => {
       return res.status(400).json({ error: "Invalid request body", details: parsed.error.flatten() });
     }
 
-    const { appId, externalOrgId, externalUserId, email, firstName, lastName, imageUrl } = parsed.data;
+    const { externalOrgId, externalUserId, email, firstName, lastName, imageUrl } = parsed.data;
 
     // Upsert org
     const [org] = await db
       .insert(orgs)
-      .values({ appId, externalId: externalOrgId })
+      .values({ externalId: externalOrgId })
       .onConflictDoUpdate({
-        target: [orgs.appId, orgs.externalId],
+        target: [orgs.externalId],
         set: { updatedAt: new Date() },
       })
       .returning();
@@ -41,9 +41,9 @@ router.post("/resolve", requireApiKey, async (req, res) => {
 
     const [user] = await db
       .insert(users)
-      .values({ appId, externalId: externalUserId, orgId: org.id, ...profileData })
+      .values({ externalId: externalUserId, orgId: org.id, ...profileData })
       .onConflictDoUpdate({
-        target: [users.appId, users.externalId],
+        target: [users.externalId],
         set: { ...profileData, orgId: org.id, updatedAt: new Date() },
       })
       .returning();
