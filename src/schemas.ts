@@ -81,6 +81,14 @@ const ListUsersResponseSchema = z
   })
   .openapi("ListUsersResponse");
 
+// --- Header schemas ---
+
+const RunIdHeaderSchema = z
+  .object({
+    "x-run-id": z.string().uuid(),
+  })
+  .openapi("RunIdHeader");
+
 // --- Security schemes ---
 
 registry.registerComponent("securitySchemes", "ApiKeyAuth", {
@@ -109,6 +117,7 @@ registry.registerPath({
   summary: "List users filtered by org",
   security: [{ ApiKeyAuth: [] }],
   request: {
+    headers: RunIdHeaderSchema,
     query: ListUsersQuerySchema,
   },
   responses: {
@@ -137,6 +146,7 @@ registry.registerPath({
   summary: "Resolve external org/user IDs to internal UUIDs (idempotent upsert)",
   security: [{ ApiKeyAuth: [] }],
   request: {
+    headers: RunIdHeaderSchema,
     body: {
       content: { "application/json": { schema: ResolveBodySchema } },
     },

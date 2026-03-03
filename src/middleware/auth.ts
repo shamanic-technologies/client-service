@@ -19,3 +19,17 @@ export function requireApiKey(
 
   next();
 }
+
+export function requireRunId(
+  req: Request,
+  res: Response,
+  next: NextFunction
+) {
+  const runId = req.headers["x-run-id"];
+
+  if (!runId || (typeof runId === "string" && runId.trim() === "")) {
+    return res.status(400).json({ error: "Missing x-run-id header" });
+  }
+
+  next();
+}
