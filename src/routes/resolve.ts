@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { db } from "../db/index.js";
 import { users, orgs } from "../db/schema.js";
-import { requireApiKey } from "../middleware/auth.js";
+import { requireApiKey, requireRunId } from "../middleware/auth.js";
 import { ResolveBodySchema } from "../schemas.js";
 
 const router = Router();
@@ -10,7 +10,7 @@ const router = Router();
  * POST /resolve - Resolve external IDs to internal UUIDs
  * Idempotent: creates org/user if they don't exist, returns existing if they do.
  */
-router.post("/resolve", requireApiKey, async (req, res) => {
+router.post("/resolve", requireApiKey, requireRunId, async (req, res) => {
   try {
     const parsed = ResolveBodySchema.safeParse(req.body);
     if (!parsed.success) {

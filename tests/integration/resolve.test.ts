@@ -4,6 +4,7 @@ import { createTestApp } from "../helpers/test-app.js";
 import { cleanTestData, closeDb } from "../helpers/test-db.js";
 
 const API_KEY = "test_api_key";
+const RUN_ID = "550e8400-e29b-41d4-a716-446655440000";
 
 describe("POST /resolve", () => {
   const app = createTestApp();
@@ -21,6 +22,7 @@ describe("POST /resolve", () => {
     const res = await request(app)
       .post("/resolve")
       .set("x-api-key", API_KEY)
+      .set("x-run-id", RUN_ID)
       .send({
         externalOrgId: "clerk_org_123",
         externalUserId: "clerk_user_456",
@@ -37,6 +39,7 @@ describe("POST /resolve", () => {
     const first = await request(app)
       .post("/resolve")
       .set("x-api-key", API_KEY)
+      .set("x-run-id", RUN_ID)
       .send({
         externalOrgId: "org-1",
         externalUserId: "user-1",
@@ -45,6 +48,7 @@ describe("POST /resolve", () => {
     const second = await request(app)
       .post("/resolve")
       .set("x-api-key", API_KEY)
+      .set("x-run-id", RUN_ID)
       .send({
         externalOrgId: "org-1",
         externalUserId: "user-1",
@@ -61,6 +65,7 @@ describe("POST /resolve", () => {
     const res = await request(app)
       .post("/resolve")
       .set("x-api-key", API_KEY)
+      .set("x-run-id", RUN_ID)
       .send({
         externalOrgId: "org-profile",
         externalUserId: "user-profile",
@@ -77,6 +82,7 @@ describe("POST /resolve", () => {
     const res = await request(app)
       .post("/resolve")
       .set("x-api-key", API_KEY)
+      .set("x-run-id", RUN_ID)
       .send({
         externalUserId: "user-1",
       });
@@ -88,6 +94,7 @@ describe("POST /resolve", () => {
     const res = await request(app)
       .post("/resolve")
       .set("x-api-key", API_KEY)
+      .set("x-run-id", RUN_ID)
       .send({
         externalOrgId: "org-1",
       });
@@ -110,11 +117,25 @@ describe("POST /resolve", () => {
     const res = await request(app)
       .post("/resolve")
       .set("x-api-key", "wrong-key")
+      .set("x-run-id", RUN_ID)
       .send({
         externalOrgId: "org-1",
         externalUserId: "user-1",
       });
 
     expect(res.status).toBe(401);
+  });
+
+  it("should return 400 without x-run-id header", async () => {
+    const res = await request(app)
+      .post("/resolve")
+      .set("x-api-key", API_KEY)
+      .send({
+        externalOrgId: "org-1",
+        externalUserId: "user-1",
+      });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe("Missing x-run-id header");
   });
 });

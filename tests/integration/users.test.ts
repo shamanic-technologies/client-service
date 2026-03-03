@@ -4,6 +4,7 @@ import { createTestApp } from "../helpers/test-app.js";
 import { cleanTestData, insertTestOrg, insertTestUser, closeDb } from "../helpers/test-db.js";
 
 const API_KEY = "test_api_key";
+const RUN_ID = "550e8400-e29b-41d4-a716-446655440000";
 
 describe("GET /users", () => {
   const app = createTestApp();
@@ -25,6 +26,7 @@ describe("GET /users", () => {
     const res = await request(app)
       .get("/users")
       .set("x-api-key", API_KEY)
+      .set("x-run-id", RUN_ID)
       .query({ orgId: org.id });
 
     expect(res.status).toBe(200);
@@ -44,6 +46,7 @@ describe("GET /users", () => {
     const res = await request(app)
       .get("/users")
       .set("x-api-key", API_KEY)
+      .set("x-run-id", RUN_ID)
       .query({ externalOrgId: "ext-org-abc" });
 
     expect(res.status).toBe(200);
@@ -55,6 +58,7 @@ describe("GET /users", () => {
     const res = await request(app)
       .get("/users")
       .set("x-api-key", API_KEY)
+      .set("x-run-id", RUN_ID)
       .query({ externalOrgId: "does-not-exist" });
 
     expect(res.status).toBe(200);
@@ -70,6 +74,7 @@ describe("GET /users", () => {
     const res = await request(app)
       .get("/users")
       .set("x-api-key", API_KEY)
+      .set("x-run-id", RUN_ID)
       .query({ orgId: org.id, email: "target@test.com" });
 
     expect(res.status).toBe(200);
@@ -87,6 +92,7 @@ describe("GET /users", () => {
     const res = await request(app)
       .get("/users")
       .set("x-api-key", API_KEY)
+      .set("x-run-id", RUN_ID)
       .query({ orgId: org.id, limit: 2, offset: 0 });
 
     expect(res.status).toBe(200);
@@ -98,6 +104,7 @@ describe("GET /users", () => {
     const res2 = await request(app)
       .get("/users")
       .set("x-api-key", API_KEY)
+      .set("x-run-id", RUN_ID)
       .query({ orgId: org.id, limit: 2, offset: 2 });
 
     expect(res2.status).toBe(200);
@@ -112,6 +119,7 @@ describe("GET /users", () => {
     const res = await request(app)
       .get("/users")
       .set("x-api-key", API_KEY)
+      .set("x-run-id", RUN_ID)
       .query({ orgId: org.id });
 
     expect(res.status).toBe(200);
@@ -127,6 +135,16 @@ describe("GET /users", () => {
     expect(res.status).toBe(401);
   });
 
+  it("should return 400 without x-run-id header", async () => {
+    const res = await request(app)
+      .get("/users")
+      .set("x-api-key", API_KEY)
+      .query({});
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe("Missing x-run-id header");
+  });
+
   it("should return all user fields", async () => {
     const org = await insertTestOrg({ externalId: "org-1" });
     await insertTestUser({
@@ -140,6 +158,7 @@ describe("GET /users", () => {
     const res = await request(app)
       .get("/users")
       .set("x-api-key", API_KEY)
+      .set("x-run-id", RUN_ID)
       .query({ orgId: org.id });
 
     expect(res.status).toBe(200);
