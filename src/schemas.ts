@@ -47,6 +47,25 @@ const ResolveResponseSchema = z
   })
   .openapi("ResolveResponse");
 
+// --- Get User by ID ---
+
+export const GetUserParamsSchema = z
+  .object({
+    userId: z.string().uuid(),
+  })
+  .openapi("GetUserParams");
+
+const GetUserResponseSchema = z
+  .object({
+    user: z.object({
+      id: z.string().uuid(),
+      email: z.string().nullable(),
+      firstName: z.string().nullable(),
+      lastName: z.string().nullable(),
+    }),
+  })
+  .openapi("GetUserResponse");
+
 // --- List Users ---
 
 export const ListUsersQuerySchema = z
@@ -107,6 +126,35 @@ registry.registerPath({
     200: {
       description: "Service is healthy",
       content: { "application/json": { schema: HealthResponseSchema } },
+    },
+  },
+});
+
+registry.registerPath({
+  method: "get",
+  path: "/users/{userId}",
+  summary: "Get a user by internal UUID",
+  security: [{ ApiKeyAuth: [] }],
+  request: {
+    headers: RunIdHeaderSchema,
+    params: GetUserParamsSchema,
+  },
+  responses: {
+    200: {
+      description: "User found",
+      content: { "application/json": { schema: GetUserResponseSchema } },
+    },
+    404: {
+      description: "User not found",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+    401: {
+      description: "Unauthorized",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+    500: {
+      description: "Internal server error",
+      content: { "application/json": { schema: ErrorResponseSchema } },
     },
   },
 });

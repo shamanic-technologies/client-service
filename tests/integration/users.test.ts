@@ -1,10 +1,76 @@
 import { describe, it, expect, beforeEach, afterAll } from "vitest";
 import request from "supertest";
 import { createTestApp } from "../helpers/test-app.js";
-import { cleanTestData, insertTestOrg, insertTestUser, closeDb } from "../helpers/test-db.js";
+import { cleanTestData, insertTestOrg, insertTestUser, closeDb, randomId } from "../helpers/test-db.js";
 
 const API_KEY = "test_api_key";
 const RUN_ID = "550e8400-e29b-41d4-a716-446655440000";
+
+describe("GET /users/:userId", () => {
+  const app = createTestApp();
+
+  beforeEach(async () => {
+    await cleanTestData();
+  });
+
+  it("should return a user by internal UUID", async () => {
+    const org = await insertTestOrg({ externalId: "org-1" });
+    const user = await insertTestUser({
+      externalId: "user-1",
+      email: "test@example.com",
+      firstName: "Jane",
+      lastName: "Doe",
+      orgId: org.id,
+    });
+
+    const res = await request(app)
+      .get(`/users/${user.id}`)
+      .set("x-api-key", API_KEY)
+      .set("x-run-id", RUN_ID);
+
+    expect(res.status).toBe(200);
+    expect(res.body.user).toEqual({
+      id: user.id,
+      email: "test@example.com",
+      firstName: "Jane",
+      lastName: "Doe",
+    });
+  });
+
+  it("should return 404 for non-existent userId", async () => {
+    const res = await request(app)
+      .get(`/users/${randomId()}`)
+      .set("x-api-key", API_KEY)
+      .set("x-run-id", RUN_ID);
+
+    expect(res.status).toBe(404);
+    expect(res.body.error).toBe("User not found");
+  });
+
+  it("should return 400 for invalid UUID", async () => {
+    const res = await request(app)
+      .get("/users/not-a-uuid")
+      .set("x-api-key", API_KEY)
+      .set("x-run-id", RUN_ID);
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe("Invalid userId parameter");
+  });
+
+  it("should return 401 without API key", async () => {
+    const res = await request(app).get(`/users/${randomId()}`);
+    expect(res.status).toBe(401);
+  });
+
+  it("should return 400 without x-run-id header", async () => {
+    const res = await request(app)
+      .get(`/users/${randomId()}`)
+      .set("x-api-key", API_KEY);
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe("Missing x-run-id header");
+  });
+});
 
 describe("GET /users", () => {
   const app = createTestApp();
