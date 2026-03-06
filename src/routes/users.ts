@@ -3,9 +3,41 @@ import { and, eq, count } from "drizzle-orm";
 import { db } from "../db/index.js";
 import { users, orgs } from "../db/schema.js";
 import { requireApiKey, requireRunId } from "../middleware/auth.js";
-import { ListUsersQuerySchema } from "../schemas.js";
+import { GetUserParamsSchema, ListUsersQuerySchema } from "../schemas.js";
 
 const router = Router();
+
+/**
+ * GET /users/:userId - Get a single user by internal UUID
+ */
+router.get("/users/:userId", requireApiKey, requireRunId, async (req, res) => {
+  try {
+    const parsed = GetUserParamsSchema.safeParse(req.params);
+    if (!parsed.success) {
+      return res.status(400).json({ error: "Invalid userId parameter", details: parsed.error.flatten() });
+    }
+
+    const [user] = await db
+      .select({
+        id: users.id,
+        email: users.email,
+        firstName: users.firstName,
+        lastName: users.lastName,
+      })
+      .from(users)
+      .where(eq(users.id, parsed.data.userId))
+      .limit(1);
+
+    if (!user) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    return res.json({ user });
+  } catch (error) {
+    console.error("Get user error:", error);
+    return res.status(500).json({ error: "Failed to get user" });
+  }
+});
 
 /**
  * GET /users - List users filtered by app and org
