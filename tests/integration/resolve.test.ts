@@ -24,6 +24,7 @@ describe("POST /resolve", () => {
       .send({
         externalOrgId: "clerk_org_123",
         externalUserId: "clerk_user_456",
+        email: "user@example.com",
       });
 
     expect(res.status).toBe(200);
@@ -40,6 +41,7 @@ describe("POST /resolve", () => {
       .send({
         externalOrgId: "org-1",
         externalUserId: "user-1",
+        email: "idempotent@example.com",
       });
 
     const second = await request(app)
@@ -48,6 +50,7 @@ describe("POST /resolve", () => {
       .send({
         externalOrgId: "org-1",
         externalUserId: "user-1",
+        email: "idempotent@example.com",
       });
 
     expect(second.status).toBe(200);
@@ -71,6 +74,31 @@ describe("POST /resolve", () => {
 
     expect(res.status).toBe(200);
     expect(res.body.userCreated).toBe(true);
+  });
+
+  it("should reject missing email", async () => {
+    const res = await request(app)
+      .post("/resolve")
+      .set("x-api-key", API_KEY)
+      .send({
+        externalOrgId: "org-1",
+        externalUserId: "user-1",
+      });
+
+    expect(res.status).toBe(400);
+  });
+
+  it("should reject invalid email", async () => {
+    const res = await request(app)
+      .post("/resolve")
+      .set("x-api-key", API_KEY)
+      .send({
+        externalOrgId: "org-1",
+        externalUserId: "user-1",
+        email: "not-an-email",
+      });
+
+    expect(res.status).toBe(400);
   });
 
   it("should reject missing externalOrgId", async () => {
@@ -125,6 +153,7 @@ describe("POST /resolve", () => {
       .send({
         externalOrgId: "org-no-run",
         externalUserId: "user-no-run",
+        email: "norun@example.com",
       });
 
     expect(res.status).toBe(200);
