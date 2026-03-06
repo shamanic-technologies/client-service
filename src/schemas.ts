@@ -31,7 +31,7 @@ export const ResolveBodySchema = z
   .object({
     externalOrgId: z.string().min(1),
     externalUserId: z.string().min(1),
-    email: z.string().email(),
+    email: z.string().email().optional(),
     firstName: z.string().optional(),
     lastName: z.string().optional(),
     imageUrl: z.string().url().optional(),
