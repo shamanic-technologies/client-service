@@ -70,6 +70,45 @@ describe("GET /users/:userId", () => {
     expect(res.status).toBe(400);
     expect(res.body.error).toBe("Missing x-run-id header");
   });
+
+  it("should accept optional workflow tracking headers", async () => {
+    const org = await insertTestOrg({ externalId: "org-wf" });
+    const user = await insertTestUser({
+      externalId: "user-wf",
+      email: "wf@test.com",
+      firstName: "Workflow",
+      lastName: "Test",
+      orgId: org.id,
+    });
+
+    const res = await request(app)
+      .get(`/users/${user.id}`)
+      .set("x-api-key", API_KEY)
+      .set("x-run-id", RUN_ID)
+      .set("x-campaign-id", "camp-123")
+      .set("x-brand-id", "brand-456")
+      .set("x-workflow-name", "onboarding-flow");
+
+    expect(res.status).toBe(200);
+    expect(res.body.user.id).toBe(user.id);
+  });
+
+  it("should work without workflow tracking headers", async () => {
+    const org = await insertTestOrg({ externalId: "org-no-wf" });
+    const user = await insertTestUser({
+      externalId: "user-no-wf",
+      email: "nowf@test.com",
+      orgId: org.id,
+    });
+
+    const res = await request(app)
+      .get(`/users/${user.id}`)
+      .set("x-api-key", API_KEY)
+      .set("x-run-id", RUN_ID);
+
+    expect(res.status).toBe(200);
+    expect(res.body.user.id).toBe(user.id);
+  });
 });
 
 describe("GET /users", () => {
@@ -209,6 +248,23 @@ describe("GET /users", () => {
 
     expect(res.status).toBe(400);
     expect(res.body.error).toBe("Missing x-run-id header");
+  });
+
+  it("should accept optional workflow tracking headers", async () => {
+    const org = await insertTestOrg({ externalId: "org-wf-list" });
+    await insertTestUser({ externalId: "user-wf-list", email: "wf@test.com", orgId: org.id });
+
+    const res = await request(app)
+      .get("/users")
+      .set("x-api-key", API_KEY)
+      .set("x-run-id", RUN_ID)
+      .set("x-campaign-id", "camp-789")
+      .set("x-brand-id", "brand-012")
+      .set("x-workflow-name", "enrichment-flow")
+      .query({ orgId: org.id });
+
+    expect(res.status).toBe(200);
+    expect(res.body.users).toHaveLength(1);
   });
 
   it("should return all user fields", async () => {
