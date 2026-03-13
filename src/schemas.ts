@@ -108,6 +108,17 @@ const RunIdHeaderSchema = z
   })
   .openapi("RunIdHeader");
 
+const WorkflowTrackingHeaderSchema = z
+  .object({
+    "x-campaign-id": z.string().optional(),
+    "x-brand-id": z.string().optional(),
+    "x-workflow-name": z.string().optional(),
+  })
+  .openapi("WorkflowTrackingHeader");
+
+const AllHeadersSchema = RunIdHeaderSchema.merge(WorkflowTrackingHeaderSchema)
+  .openapi("AllHeaders");
+
 // --- Security schemes ---
 
 registry.registerComponent("securitySchemes", "ApiKeyAuth", {
@@ -136,7 +147,7 @@ registry.registerPath({
   summary: "Get a user by internal UUID",
   security: [{ ApiKeyAuth: [] }],
   request: {
-    headers: RunIdHeaderSchema,
+    headers: AllHeadersSchema,
     params: GetUserParamsSchema,
   },
   responses: {
@@ -165,7 +176,7 @@ registry.registerPath({
   summary: "List users filtered by org",
   security: [{ ApiKeyAuth: [] }],
   request: {
-    headers: RunIdHeaderSchema,
+    headers: AllHeadersSchema,
     query: ListUsersQuerySchema,
   },
   responses: {
@@ -194,7 +205,7 @@ registry.registerPath({
   summary: "Resolve external org/user IDs to internal UUIDs (idempotent upsert)",
   security: [{ ApiKeyAuth: [] }],
   request: {
-    headers: RunIdHeaderSchema,
+    headers: AllHeadersSchema,
     body: {
       content: { "application/json": { schema: ResolveBodySchema } },
     },

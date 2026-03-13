@@ -216,6 +216,24 @@ describe("POST /resolve", () => {
     expect(res.status).toBe(401);
   });
 
+  it("should accept optional workflow tracking headers", async () => {
+    const res = await request(app)
+      .post("/resolve")
+      .set("x-api-key", API_KEY)
+      .set("x-campaign-id", "camp-resolve-1")
+      .set("x-brand-id", "brand-resolve-1")
+      .set("x-workflow-name", "resolve-flow")
+      .send({
+        externalOrgId: "org-wf-resolve",
+        externalUserId: "user-wf-resolve",
+        email: "wf-resolve@example.com",
+      });
+
+    expect(res.status).toBe(200);
+    expect(res.body.orgId).toBeDefined();
+    expect(res.body.userId).toBeDefined();
+  });
+
   it("should not require x-run-id header (infrastructure endpoint)", async () => {
     const res = await request(app)
       .post("/resolve")
