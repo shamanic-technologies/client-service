@@ -87,7 +87,8 @@ describe("GET /users/:userId", () => {
       .set("x-run-id", RUN_ID)
       .set("x-campaign-id", "camp-123")
       .set("x-brand-id", "brand-456")
-      .set("x-workflow-name", "onboarding-flow");
+      .set("x-workflow-name", "onboarding-flow")
+      .set("x-feature-slug", "user-lookup");
 
     expect(res.status).toBe(200);
     expect(res.body.user.id).toBe(user.id);
@@ -261,6 +262,7 @@ describe("GET /users", () => {
       .set("x-campaign-id", "camp-789")
       .set("x-brand-id", "brand-012")
       .set("x-workflow-name", "enrichment-flow")
+      .set("x-feature-slug", "user-list")
       .query({ orgId: org.id });
 
     expect(res.status).toBe(200);
