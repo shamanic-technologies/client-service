@@ -112,7 +112,7 @@ const WorkflowTrackingHeaderSchema = z
   .object({
     "x-campaign-id": z.string().optional(),
     "x-brand-id": z.string().optional(),
-    "x-workflow-name": z.string().optional(),
+    "x-workflow-slug": z.string().optional(),
     "x-feature-slug": z.string().optional(),
   })
   .openapi("WorkflowTrackingHeader");

@@ -222,7 +222,7 @@ describe("POST /resolve", () => {
       .set("x-api-key", API_KEY)
       .set("x-campaign-id", "camp-resolve-1")
       .set("x-brand-id", "brand-resolve-1")
-      .set("x-workflow-name", "resolve-flow")
+      .set("x-workflow-slug", "resolve-flow")
       .set("x-feature-slug", "resolve-identity")
       .send({
         externalOrgId: "org-wf-resolve",

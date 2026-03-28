@@ -277,7 +277,7 @@
               "type": "string"
             },
             "required": false,
-            "name": "x-workflow-name",
+            "name": "x-workflow-slug",
             "in": "header"
           },
           {
@@ -420,7 +420,7 @@
               "type": "string"
             },
             "required": false,
-            "name": "x-workflow-name",
+            "name": "x-workflow-slug",
             "in": "header"
           },
           {
@@ -515,7 +515,7 @@
               "type": "string"
             },
             "required": false,
-            "name": "x-workflow-name",
+            "name": "x-workflow-slug",
             "in": "header"
           },
           {
