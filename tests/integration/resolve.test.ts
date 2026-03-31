@@ -221,7 +221,7 @@ describe("POST /resolve", () => {
       .post("/resolve")
       .set("x-api-key", API_KEY)
       .set("x-campaign-id", "camp-resolve-1")
-      .set("x-brand-id", "brand-resolve-1")
+      .set("x-brand-id", "brand-resolve-1,brand-resolve-2")
       .set("x-workflow-slug", "resolve-flow")
       .set("x-feature-slug", "resolve-identity")
       .send({
