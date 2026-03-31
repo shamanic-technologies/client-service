@@ -266,9 +266,12 @@
           },
           {
             "schema": {
-              "type": "string"
+              "type": "string",
+              "description": "Comma-separated list of brand UUIDs",
+              "example": "uuid1,uuid2,uuid3"
             },
             "required": false,
+            "description": "Comma-separated list of brand UUIDs",
             "name": "x-brand-id",
             "in": "header"
           },
@@ -409,9 +412,12 @@
           },
           {
             "schema": {
-              "type": "string"
+              "type": "string",
+              "description": "Comma-separated list of brand UUIDs",
+              "example": "uuid1,uuid2,uuid3"
             },
             "required": false,
+            "description": "Comma-separated list of brand UUIDs",
             "name": "x-brand-id",
             "in": "header"
           },
@@ -504,9 +510,12 @@
           },
           {
             "schema": {
-              "type": "string"
+              "type": "string",
+              "description": "Comma-separated list of brand UUIDs",
+              "example": "uuid1,uuid2,uuid3"
             },
             "required": false,
+            "description": "Comma-separated list of brand UUIDs",
             "name": "x-brand-id",
             "in": "header"
           },

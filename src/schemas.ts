@@ -111,7 +111,7 @@ const RunIdHeaderSchema = z
 const WorkflowTrackingHeaderSchema = z
   .object({
     "x-campaign-id": z.string().optional(),
-    "x-brand-id": z.string().optional(),
+    "x-brand-id": z.string().optional().openapi({ description: "Comma-separated list of brand UUIDs", example: "uuid1,uuid2,uuid3" }),
     "x-workflow-slug": z.string().optional(),
     "x-feature-slug": z.string().optional(),
   })

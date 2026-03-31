@@ -86,7 +86,7 @@ describe("GET /users/:userId", () => {
       .set("x-api-key", API_KEY)
       .set("x-run-id", RUN_ID)
       .set("x-campaign-id", "camp-123")
-      .set("x-brand-id", "brand-456")
+      .set("x-brand-id", "brand-456,brand-789")
       .set("x-workflow-slug", "onboarding-flow")
       .set("x-feature-slug", "user-lookup");
 
@@ -260,7 +260,7 @@ describe("GET /users", () => {
       .set("x-api-key", API_KEY)
       .set("x-run-id", RUN_ID)
       .set("x-campaign-id", "camp-789")
-      .set("x-brand-id", "brand-012")
+      .set("x-brand-id", "brand-012,brand-034")
       .set("x-workflow-slug", "enrichment-flow")
       .set("x-feature-slug", "user-list")
       .query({ orgId: org.id });
