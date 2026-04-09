@@ -73,8 +73,8 @@ export const ListUsersQuerySchema = z
     orgId: z.string().uuid().optional(),
     externalOrgId: z.string().min(1).optional(),
     email: z.string().optional(),
-    limit: z.coerce.number().int().min(1).max(200).default(50),
-    offset: z.coerce.number().int().min(0).default(0),
+    limit: z.coerce.number().int().min(1).optional(),
+    offset: z.coerce.number().int().min(0).optional(),
   })
   .openapi("ListUsersQuery");
 
@@ -95,8 +95,8 @@ const ListUsersResponseSchema = z
   .object({
     users: z.array(ListUsersUserSchema),
     total: z.number().int(),
-    limit: z.number().int(),
-    offset: z.number().int(),
+    limit: z.number().int().optional(),
+    offset: z.number().int().optional(),
   })
   .openapi("ListUsersResponse");
 
