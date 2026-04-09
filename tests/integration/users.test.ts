@@ -138,8 +138,8 @@ describe("GET /users", () => {
     expect(res.status).toBe(200);
     expect(res.body.users).toHaveLength(2);
     expect(res.body.total).toBe(2);
-    expect(res.body.limit).toBe(50);
-    expect(res.body.offset).toBe(0);
+    expect(res.body.limit).toBeUndefined();
+    expect(res.body.offset).toBeUndefined();
     expect(res.body.users[0]).toHaveProperty("id");
     expect(res.body.users[0]).toHaveProperty("email");
     expect(res.body.users[0]).toHaveProperty("createdAt");
@@ -267,6 +267,26 @@ describe("GET /users", () => {
 
     expect(res.status).toBe(200);
     expect(res.body.users).toHaveLength(1);
+  });
+
+  it("should return ALL users when limit is omitted (no silent truncation)", async () => {
+    const org = await insertTestOrg({ externalId: "org-no-limit" });
+    // Insert more users than the old default of 50
+    for (let i = 0; i < 60; i++) {
+      await insertTestUser({ externalId: `user-nolim-${i}`, orgId: org.id });
+    }
+
+    const res = await request(app)
+      .get("/users")
+      .set("x-api-key", API_KEY)
+      .set("x-run-id", RUN_ID)
+      .query({ orgId: org.id });
+
+    expect(res.status).toBe(200);
+    expect(res.body.users).toHaveLength(60);
+    expect(res.body.total).toBe(60);
+    expect(res.body.limit).toBeUndefined();
+    expect(res.body.offset).toBeUndefined();
   });
 
   it("should return all user fields", async () => {
