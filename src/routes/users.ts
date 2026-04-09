@@ -61,7 +61,7 @@ router.get("/users", requireApiKey, requireRunId, async (req, res) => {
         .limit(1);
 
       if (!org) {
-        return res.json({ users: [], total: 0, limit, offset });
+        return res.json({ users: [], total: 0, ...(limit !== undefined && { limit }), ...(offset !== undefined && { offset }) });
       }
       resolvedOrgId = org.id;
     }
@@ -78,23 +78,31 @@ router.get("/users", requireApiKey, requireRunId, async (req, res) => {
     const where = conditions.length > 0 ? and(...conditions) : undefined;
 
     // Run data + count queries in parallel
+    let query = db
+      .select({
+        id: users.id,
+        externalId: users.externalId,
+        email: users.email,
+        firstName: users.firstName,
+        lastName: users.lastName,
+        imageUrl: users.imageUrl,
+        phone: users.phone,
+        createdAt: users.createdAt,
+      })
+      .from(users)
+      .where(where)
+      .orderBy(users.createdAt)
+      .$dynamic();
+
+    if (limit !== undefined) {
+      query = query.limit(limit);
+    }
+    if (offset !== undefined) {
+      query = query.offset(offset);
+    }
+
     const [rows, [{ total }]] = await Promise.all([
-      db
-        .select({
-          id: users.id,
-          externalId: users.externalId,
-          email: users.email,
-          firstName: users.firstName,
-          lastName: users.lastName,
-          imageUrl: users.imageUrl,
-          phone: users.phone,
-          createdAt: users.createdAt,
-        })
-        .from(users)
-        .where(where)
-        .limit(limit)
-        .offset(offset)
-        .orderBy(users.createdAt),
+      query,
       db
         .select({ total: count() })
         .from(users)
@@ -107,8 +115,8 @@ router.get("/users", requireApiKey, requireRunId, async (req, res) => {
         createdAt: u.createdAt.toISOString(),
       })),
       total,
-      limit,
-      offset,
+      ...(limit !== undefined && { limit }),
+      ...(offset !== undefined && { offset }),
     });
   } catch (error) {
     console.error("List users error:", error);
