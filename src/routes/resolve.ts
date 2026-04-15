@@ -17,15 +17,19 @@ router.post("/resolve", requireApiKey, async (req, res) => {
       return res.status(400).json({ error: "Invalid request body", details: parsed.error.flatten() });
     }
 
-    const { externalOrgId, externalUserId, email, firstName, lastName, imageUrl } = parsed.data;
+    const { externalOrgId, externalUserId, email, firstName, lastName, imageUrl, orgName } = parsed.data;
 
-    // Upsert org
+    // Upsert org with optional name
+    const orgData = {
+      ...(orgName !== undefined && { name: orgName }),
+    };
+
     const [org] = await db
       .insert(orgs)
-      .values({ externalId: externalOrgId })
+      .values({ externalId: externalOrgId, ...orgData })
       .onConflictDoUpdate({
         target: [orgs.externalId],
-        set: { updatedAt: new Date() },
+        set: { ...orgData, updatedAt: new Date() },
       })
       .returning();
 

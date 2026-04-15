@@ -4,7 +4,7 @@ import { eq } from "drizzle-orm";
 import { createTestApp } from "../helpers/test-app.js";
 import { cleanTestData, closeDb } from "../helpers/test-db.js";
 import { db } from "../../src/db/index.js";
-import { users } from "../../src/db/schema.js";
+import { users, orgs } from "../../src/db/schema.js";
 
 const API_KEY = "test_api_key";
 
@@ -191,6 +191,79 @@ describe("POST /resolve", () => {
       });
 
     expect(res.status).toBe(400);
+  });
+
+  it("should persist orgName on create", async () => {
+    const res = await request(app)
+      .post("/resolve")
+      .set("x-api-key", API_KEY)
+      .send({
+        externalOrgId: "org-with-name",
+        externalUserId: "user-org-name",
+        orgName: "Acme Corp",
+      });
+
+    expect(res.status).toBe(200);
+    expect(res.body.orgCreated).toBe(true);
+
+    const [row] = await db
+      .select({ name: orgs.name })
+      .from(orgs)
+      .where(eq(orgs.id, res.body.orgId));
+    expect(row.name).toBe("Acme Corp");
+  });
+
+  it("should update orgName on subsequent resolve", async () => {
+    await request(app)
+      .post("/resolve")
+      .set("x-api-key", API_KEY)
+      .send({
+        externalOrgId: "org-name-update",
+        externalUserId: "user-name-update",
+        orgName: "Old Name",
+      });
+
+    const second = await request(app)
+      .post("/resolve")
+      .set("x-api-key", API_KEY)
+      .send({
+        externalOrgId: "org-name-update",
+        externalUserId: "user-name-update",
+        orgName: "New Name",
+      });
+
+    expect(second.status).toBe(200);
+
+    const [row] = await db
+      .select({ name: orgs.name })
+      .from(orgs)
+      .where(eq(orgs.id, second.body.orgId));
+    expect(row.name).toBe("New Name");
+  });
+
+  it("should not overwrite orgName when omitted on update", async () => {
+    const first = await request(app)
+      .post("/resolve")
+      .set("x-api-key", API_KEY)
+      .send({
+        externalOrgId: "org-name-preserve",
+        externalUserId: "user-name-preserve",
+        orgName: "Preserved Name",
+      });
+
+    await request(app)
+      .post("/resolve")
+      .set("x-api-key", API_KEY)
+      .send({
+        externalOrgId: "org-name-preserve",
+        externalUserId: "user-name-preserve",
+      });
+
+    const [row] = await db
+      .select({ name: orgs.name })
+      .from(orgs)
+      .where(eq(orgs.id, first.body.orgId));
+    expect(row.name).toBe("Preserved Name");
   });
 
   it("should reject request without API key", async () => {
