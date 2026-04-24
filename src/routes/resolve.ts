@@ -7,10 +7,10 @@ import { ResolveBodySchema } from "../schemas.js";
 const router = Router();
 
 /**
- * POST /resolve - Resolve external IDs to internal UUIDs
+ * POST /internal/resolve - Resolve external IDs to internal UUIDs
  * Idempotent: creates org/user if they don't exist, returns existing if they do.
  */
-router.post("/resolve", requireApiKey, async (req, res) => {
+router.post("/internal/resolve", requireApiKey, async (req, res) => {
   try {
     const parsed = ResolveBodySchema.safeParse(req.body);
     if (!parsed.success) {

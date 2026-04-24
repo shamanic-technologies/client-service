@@ -4,9 +4,8 @@ import { createTestApp } from "../helpers/test-app.js";
 import { cleanTestData, insertTestOrg, insertTestUser, closeDb, randomId } from "../helpers/test-db.js";
 
 const API_KEY = "test_api_key";
-const RUN_ID = "550e8400-e29b-41d4-a716-446655440000";
 
-describe("GET /users/:userId", () => {
+describe("GET /internal/users/:userId", () => {
   const app = createTestApp();
 
   beforeEach(async () => {
@@ -24,9 +23,8 @@ describe("GET /users/:userId", () => {
     });
 
     const res = await request(app)
-      .get(`/users/${user.id}`)
-      .set("x-api-key", API_KEY)
-      .set("x-run-id", RUN_ID);
+      .get(`/internal/users/${user.id}`)
+      .set("x-api-key", API_KEY);
 
     expect(res.status).toBe(200);
     expect(res.body.user).toEqual({
@@ -39,9 +37,8 @@ describe("GET /users/:userId", () => {
 
   it("should return 404 for non-existent userId", async () => {
     const res = await request(app)
-      .get(`/users/${randomId()}`)
-      .set("x-api-key", API_KEY)
-      .set("x-run-id", RUN_ID);
+      .get(`/internal/users/${randomId()}`)
+      .set("x-api-key", API_KEY);
 
     expect(res.status).toBe(404);
     expect(res.body.error).toBe("User not found");
@@ -49,70 +46,36 @@ describe("GET /users/:userId", () => {
 
   it("should return 400 for invalid UUID", async () => {
     const res = await request(app)
-      .get("/users/not-a-uuid")
-      .set("x-api-key", API_KEY)
-      .set("x-run-id", RUN_ID);
+      .get("/internal/users/not-a-uuid")
+      .set("x-api-key", API_KEY);
 
     expect(res.status).toBe(400);
     expect(res.body.error).toBe("Invalid userId parameter");
   });
 
   it("should return 401 without API key", async () => {
-    const res = await request(app).get(`/users/${randomId()}`);
+    const res = await request(app).get(`/internal/users/${randomId()}`);
     expect(res.status).toBe(401);
   });
 
-  it("should return 400 without x-run-id header", async () => {
+  it("should not require x-run-id header", async () => {
+    const org = await insertTestOrg({ externalId: "org-no-run" });
+    const user = await insertTestUser({
+      externalId: "user-no-run",
+      email: "norun@test.com",
+      orgId: org.id,
+    });
+
     const res = await request(app)
-      .get(`/users/${randomId()}`)
+      .get(`/internal/users/${user.id}`)
       .set("x-api-key", API_KEY);
-
-    expect(res.status).toBe(400);
-    expect(res.body.error).toBe("Missing x-run-id header");
-  });
-
-  it("should accept optional workflow tracking headers", async () => {
-    const org = await insertTestOrg({ externalId: "org-wf" });
-    const user = await insertTestUser({
-      externalId: "user-wf",
-      email: "wf@test.com",
-      firstName: "Workflow",
-      lastName: "Test",
-      orgId: org.id,
-    });
-
-    const res = await request(app)
-      .get(`/users/${user.id}`)
-      .set("x-api-key", API_KEY)
-      .set("x-run-id", RUN_ID)
-      .set("x-campaign-id", "camp-123")
-      .set("x-brand-id", "brand-456,brand-789")
-      .set("x-workflow-slug", "onboarding-flow")
-      .set("x-feature-slug", "user-lookup");
-
-    expect(res.status).toBe(200);
-    expect(res.body.user.id).toBe(user.id);
-  });
-
-  it("should work without workflow tracking headers", async () => {
-    const org = await insertTestOrg({ externalId: "org-no-wf" });
-    const user = await insertTestUser({
-      externalId: "user-no-wf",
-      email: "nowf@test.com",
-      orgId: org.id,
-    });
-
-    const res = await request(app)
-      .get(`/users/${user.id}`)
-      .set("x-api-key", API_KEY)
-      .set("x-run-id", RUN_ID);
 
     expect(res.status).toBe(200);
     expect(res.body.user.id).toBe(user.id);
   });
 });
 
-describe("GET /users", () => {
+describe("GET /internal/users", () => {
   const app = createTestApp();
 
   beforeEach(async () => {
@@ -130,9 +93,8 @@ describe("GET /users", () => {
     await insertTestUser({ externalId: "user-2", email: "b@test.com", orgId: org.id });
 
     const res = await request(app)
-      .get("/users")
+      .get("/internal/users")
       .set("x-api-key", API_KEY)
-      .set("x-run-id", RUN_ID)
       .query({ orgId: org.id });
 
     expect(res.status).toBe(200);
@@ -150,9 +112,8 @@ describe("GET /users", () => {
     await insertTestUser({ externalId: "user-1", email: "a@test.com", orgId: org.id });
 
     const res = await request(app)
-      .get("/users")
+      .get("/internal/users")
       .set("x-api-key", API_KEY)
-      .set("x-run-id", RUN_ID)
       .query({ externalOrgId: "ext-org-abc" });
 
     expect(res.status).toBe(200);
@@ -162,9 +123,8 @@ describe("GET /users", () => {
 
   it("should return empty list for non-existent externalOrgId", async () => {
     const res = await request(app)
-      .get("/users")
+      .get("/internal/users")
       .set("x-api-key", API_KEY)
-      .set("x-run-id", RUN_ID)
       .query({ externalOrgId: "does-not-exist" });
 
     expect(res.status).toBe(200);
@@ -178,9 +138,8 @@ describe("GET /users", () => {
     await insertTestUser({ externalId: "user-2", email: "other@test.com", orgId: org.id });
 
     const res = await request(app)
-      .get("/users")
+      .get("/internal/users")
       .set("x-api-key", API_KEY)
-      .set("x-run-id", RUN_ID)
       .query({ orgId: org.id, email: "target@test.com" });
 
     expect(res.status).toBe(200);
@@ -196,9 +155,8 @@ describe("GET /users", () => {
     }
 
     const res = await request(app)
-      .get("/users")
+      .get("/internal/users")
       .set("x-api-key", API_KEY)
-      .set("x-run-id", RUN_ID)
       .query({ orgId: org.id, limit: 2, offset: 0 });
 
     expect(res.status).toBe(200);
@@ -208,9 +166,8 @@ describe("GET /users", () => {
     expect(res.body.offset).toBe(0);
 
     const res2 = await request(app)
-      .get("/users")
+      .get("/internal/users")
       .set("x-api-key", API_KEY)
-      .set("x-run-id", RUN_ID)
       .query({ orgId: org.id, limit: 2, offset: 2 });
 
     expect(res2.status).toBe(200);
@@ -223,9 +180,8 @@ describe("GET /users", () => {
     const org = await insertTestOrg({ externalId: "empty-org" });
 
     const res = await request(app)
-      .get("/users")
+      .get("/internal/users")
       .set("x-api-key", API_KEY)
-      .set("x-run-id", RUN_ID)
       .query({ orgId: org.id });
 
     expect(res.status).toBe(200);
@@ -235,51 +191,21 @@ describe("GET /users", () => {
 
   it("should return 401 without API key", async () => {
     const res = await request(app)
-      .get("/users")
+      .get("/internal/users")
       .query({});
 
     expect(res.status).toBe(401);
   });
 
-  it("should return 400 without x-run-id header", async () => {
-    const res = await request(app)
-      .get("/users")
-      .set("x-api-key", API_KEY)
-      .query({});
-
-    expect(res.status).toBe(400);
-    expect(res.body.error).toBe("Missing x-run-id header");
-  });
-
-  it("should accept optional workflow tracking headers", async () => {
-    const org = await insertTestOrg({ externalId: "org-wf-list" });
-    await insertTestUser({ externalId: "user-wf-list", email: "wf@test.com", orgId: org.id });
-
-    const res = await request(app)
-      .get("/users")
-      .set("x-api-key", API_KEY)
-      .set("x-run-id", RUN_ID)
-      .set("x-campaign-id", "camp-789")
-      .set("x-brand-id", "brand-012,brand-034")
-      .set("x-workflow-slug", "enrichment-flow")
-      .set("x-feature-slug", "user-list")
-      .query({ orgId: org.id });
-
-    expect(res.status).toBe(200);
-    expect(res.body.users).toHaveLength(1);
-  });
-
   it("should return ALL users when limit is omitted (no silent truncation)", async () => {
     const org = await insertTestOrg({ externalId: "org-no-limit" });
-    // Insert more users than the old default of 50
     for (let i = 0; i < 60; i++) {
       await insertTestUser({ externalId: `user-nolim-${i}`, orgId: org.id });
     }
 
     const res = await request(app)
-      .get("/users")
+      .get("/internal/users")
       .set("x-api-key", API_KEY)
-      .set("x-run-id", RUN_ID)
       .query({ orgId: org.id });
 
     expect(res.status).toBe(200);
@@ -300,9 +226,8 @@ describe("GET /users", () => {
     });
 
     const res = await request(app)
-      .get("/users")
+      .get("/internal/users")
       .set("x-api-key", API_KEY)
-      .set("x-run-id", RUN_ID)
       .query({ orgId: org.id });
 
     expect(res.status).toBe(200);
