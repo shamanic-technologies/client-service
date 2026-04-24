@@ -199,6 +199,9 @@
           "imageUrl": {
             "type": "string",
             "format": "uri"
+          },
+          "orgName": {
+            "type": "string"
           }
         },
         "required": [

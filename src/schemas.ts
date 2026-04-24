@@ -35,6 +35,7 @@ export const ResolveBodySchema = z
     firstName: z.string().optional(),
     lastName: z.string().optional(),
     imageUrl: z.string().url().optional(),
+    orgName: z.string().optional(),
   })
   .openapi("ResolveBody");
 
