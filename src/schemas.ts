@@ -35,6 +35,7 @@ export const ResolveBodySchema = z
     firstName: z.string().optional(),
     lastName: z.string().optional(),
     imageUrl: z.string().url().optional(),
+    orgName: z.string().optional(),
   })
   .openapi("ResolveBody");
 
@@ -99,6 +100,15 @@ const ListUsersResponseSchema = z
     offset: z.number().int().optional(),
   })
   .openapi("ListUsersResponse");
+
+// --- Org Membership Check ---
+
+export const OrgMemberCheckParamsSchema = z
+  .object({
+    orgId: z.string().uuid(),
+    userId: z.string().uuid(),
+  })
+  .openapi("OrgMemberCheckParams");
 
 // --- Header schemas ---
 
@@ -187,6 +197,38 @@ registry.registerPath({
     },
     400: {
       description: "Invalid query parameters",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+    401: {
+      description: "Unauthorized",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+    500: {
+      description: "Internal server error",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+  },
+});
+
+registry.registerPath({
+  method: "get",
+  path: "/orgs/{orgId}/members/{userId}",
+  summary: "Check if a user is a member of an org",
+  security: [{ ApiKeyAuth: [] }],
+  request: {
+    headers: AllHeadersSchema,
+    params: OrgMemberCheckParamsSchema,
+  },
+  responses: {
+    200: {
+      description: "User is a member of the org",
+    },
+    404: {
+      description: "User is not a member of the org",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+    400: {
+      description: "Invalid parameters",
       content: { "application/json": { schema: ErrorResponseSchema } },
     },
     401: {
