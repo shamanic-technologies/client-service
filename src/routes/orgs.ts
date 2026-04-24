@@ -2,15 +2,15 @@ import { Router } from "express";
 import { and, eq } from "drizzle-orm";
 import { db } from "../db/index.js";
 import { users } from "../db/schema.js";
-import { requireApiKey, requireRunId } from "../middleware/auth.js";
+import { requireApiKey } from "../middleware/auth.js";
 import { OrgMemberCheckParamsSchema } from "../schemas.js";
 
 const router = Router();
 
 /**
- * GET /orgs/:orgId/members/:userId - Check if a user is a member of an org
+ * GET /internal/orgs/:orgId/members/:userId - Check if a user is a member of an org
  */
-router.get("/orgs/:orgId/members/:userId", requireApiKey, requireRunId, async (req, res) => {
+router.get("/internal/orgs/:orgId/members/:userId", requireApiKey, async (req, res) => {
   const parsed = OrgMemberCheckParamsSchema.safeParse(req.params);
   if (!parsed.success) {
     return res.status(400).json({ error: "Invalid parameters", details: parsed.error.flatten() });

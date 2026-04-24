@@ -2,15 +2,15 @@ import { Router } from "express";
 import { and, eq, count } from "drizzle-orm";
 import { db } from "../db/index.js";
 import { users, orgs } from "../db/schema.js";
-import { requireApiKey, requireRunId } from "../middleware/auth.js";
+import { requireApiKey } from "../middleware/auth.js";
 import { GetUserParamsSchema, ListUsersQuerySchema } from "../schemas.js";
 
 const router = Router();
 
 /**
- * GET /users/:userId - Get a single user by internal UUID
+ * GET /internal/users/:userId - Get a single user by internal UUID
  */
-router.get("/users/:userId", requireApiKey, requireRunId, async (req, res) => {
+router.get("/internal/users/:userId", requireApiKey, async (req, res) => {
   try {
     const parsed = GetUserParamsSchema.safeParse(req.params);
     if (!parsed.success) {
@@ -40,9 +40,9 @@ router.get("/users/:userId", requireApiKey, requireRunId, async (req, res) => {
 });
 
 /**
- * GET /users - List users filtered by app and org
+ * GET /internal/users - List users filtered by app and org
  */
-router.get("/users", requireApiKey, requireRunId, async (req, res) => {
+router.get("/internal/users", requireApiKey, async (req, res) => {
   try {
     const parsed = ListUsersQuerySchema.safeParse(req.query);
     if (!parsed.success) {
