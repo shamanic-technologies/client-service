@@ -110,26 +110,6 @@ export const OrgMemberCheckParamsSchema = z
   })
   .openapi("OrgMemberCheckParams");
 
-// --- Header schemas ---
-
-const RunIdHeaderSchema = z
-  .object({
-    "x-run-id": z.string().uuid(),
-  })
-  .openapi("RunIdHeader");
-
-const WorkflowTrackingHeaderSchema = z
-  .object({
-    "x-campaign-id": z.string().optional(),
-    "x-brand-id": z.string().optional().openapi({ description: "Comma-separated list of brand UUIDs", example: "uuid1,uuid2,uuid3" }),
-    "x-workflow-slug": z.string().optional(),
-    "x-feature-slug": z.string().optional(),
-  })
-  .openapi("WorkflowTrackingHeader");
-
-const AllHeadersSchema = RunIdHeaderSchema.merge(WorkflowTrackingHeaderSchema)
-  .openapi("AllHeaders");
-
 // --- Security schemes ---
 
 registry.registerComponent("securitySchemes", "ApiKeyAuth", {
@@ -154,11 +134,10 @@ registry.registerPath({
 
 registry.registerPath({
   method: "get",
-  path: "/users/{userId}",
+  path: "/internal/users/{userId}",
   summary: "Get a user by internal UUID",
   security: [{ ApiKeyAuth: [] }],
   request: {
-    headers: AllHeadersSchema,
     params: GetUserParamsSchema,
   },
   responses: {
@@ -183,11 +162,10 @@ registry.registerPath({
 
 registry.registerPath({
   method: "get",
-  path: "/users",
+  path: "/internal/users",
   summary: "List users filtered by org",
   security: [{ ApiKeyAuth: [] }],
   request: {
-    headers: AllHeadersSchema,
     query: ListUsersQuerySchema,
   },
   responses: {
@@ -212,11 +190,10 @@ registry.registerPath({
 
 registry.registerPath({
   method: "get",
-  path: "/orgs/{orgId}/members/{userId}",
+  path: "/internal/orgs/{orgId}/members/{userId}",
   summary: "Check if a user is a member of an org",
   security: [{ ApiKeyAuth: [] }],
   request: {
-    headers: AllHeadersSchema,
     params: OrgMemberCheckParamsSchema,
   },
   responses: {
@@ -244,11 +221,10 @@ registry.registerPath({
 
 registry.registerPath({
   method: "post",
-  path: "/resolve",
+  path: "/internal/resolve",
   summary: "Resolve external org/user IDs to internal UUIDs (idempotent upsert)",
   security: [{ ApiKeyAuth: [] }],
   request: {
-    headers: AllHeadersSchema,
     body: {
       content: { "application/json": { schema: ResolveBodySchema } },
     },

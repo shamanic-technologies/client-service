@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, beforeEach, afterAll } from "vitest";
+import { describe, it, expect, beforeEach, afterAll } from "vitest";
 import request from "supertest";
 import { eq } from "drizzle-orm";
 import { createTestApp } from "../helpers/test-app.js";
@@ -8,7 +8,7 @@ import { users, orgs } from "../../src/db/schema.js";
 
 const API_KEY = "test_api_key";
 
-describe("POST /resolve", () => {
+describe("POST /internal/resolve", () => {
   const app = createTestApp();
 
   beforeEach(async () => {
@@ -22,7 +22,7 @@ describe("POST /resolve", () => {
 
   it("should create new org and user on first resolve", async () => {
     const res = await request(app)
-      .post("/resolve")
+      .post("/internal/resolve")
       .set("x-api-key", API_KEY)
       .send({
         externalOrgId: "clerk_org_123",
@@ -39,7 +39,7 @@ describe("POST /resolve", () => {
 
   it("should create user without email", async () => {
     const res = await request(app)
-      .post("/resolve")
+      .post("/internal/resolve")
       .set("x-api-key", API_KEY)
       .send({
         externalOrgId: "org-no-email",
@@ -53,7 +53,7 @@ describe("POST /resolve", () => {
 
   it("should return existing org and user on second resolve (idempotent)", async () => {
     const first = await request(app)
-      .post("/resolve")
+      .post("/internal/resolve")
       .set("x-api-key", API_KEY)
       .send({
         externalOrgId: "org-1",
@@ -62,7 +62,7 @@ describe("POST /resolve", () => {
       });
 
     const second = await request(app)
-      .post("/resolve")
+      .post("/internal/resolve")
       .set("x-api-key", API_KEY)
       .send({
         externalOrgId: "org-1",
@@ -79,7 +79,7 @@ describe("POST /resolve", () => {
 
   it("should pass through profile data on create", async () => {
     const res = await request(app)
-      .post("/resolve")
+      .post("/internal/resolve")
       .set("x-api-key", API_KEY)
       .send({
         externalOrgId: "org-profile",
@@ -96,7 +96,7 @@ describe("POST /resolve", () => {
   it("should not overwrite existing email when omitted on update", async () => {
     // First call: create with email
     const first = await request(app)
-      .post("/resolve")
+      .post("/internal/resolve")
       .set("x-api-key", API_KEY)
       .send({
         externalOrgId: "org-preserve",
@@ -108,7 +108,7 @@ describe("POST /resolve", () => {
 
     // Second call: omit email and firstName
     const second = await request(app)
-      .post("/resolve")
+      .post("/internal/resolve")
       .set("x-api-key", API_KEY)
       .send({
         externalOrgId: "org-preserve",
@@ -129,7 +129,7 @@ describe("POST /resolve", () => {
   it("should overwrite existing fields when explicitly provided on update", async () => {
     // First call: create with email
     await request(app)
-      .post("/resolve")
+      .post("/internal/resolve")
       .set("x-api-key", API_KEY)
       .send({
         externalOrgId: "org-overwrite",
@@ -140,7 +140,7 @@ describe("POST /resolve", () => {
 
     // Second call: provide new email and firstName
     const second = await request(app)
-      .post("/resolve")
+      .post("/internal/resolve")
       .set("x-api-key", API_KEY)
       .send({
         externalOrgId: "org-overwrite",
@@ -160,7 +160,7 @@ describe("POST /resolve", () => {
 
   it("should reject invalid email", async () => {
     const res = await request(app)
-      .post("/resolve")
+      .post("/internal/resolve")
       .set("x-api-key", API_KEY)
       .send({
         externalOrgId: "org-1",
@@ -173,7 +173,7 @@ describe("POST /resolve", () => {
 
   it("should reject missing externalOrgId", async () => {
     const res = await request(app)
-      .post("/resolve")
+      .post("/internal/resolve")
       .set("x-api-key", API_KEY)
       .send({
         externalUserId: "user-1",
@@ -184,7 +184,7 @@ describe("POST /resolve", () => {
 
   it("should reject missing externalUserId", async () => {
     const res = await request(app)
-      .post("/resolve")
+      .post("/internal/resolve")
       .set("x-api-key", API_KEY)
       .send({
         externalOrgId: "org-1",
@@ -195,7 +195,7 @@ describe("POST /resolve", () => {
 
   it("should persist orgName on create", async () => {
     const res = await request(app)
-      .post("/resolve")
+      .post("/internal/resolve")
       .set("x-api-key", API_KEY)
       .send({
         externalOrgId: "org-with-name",
@@ -215,7 +215,7 @@ describe("POST /resolve", () => {
 
   it("should update orgName on subsequent resolve", async () => {
     await request(app)
-      .post("/resolve")
+      .post("/internal/resolve")
       .set("x-api-key", API_KEY)
       .send({
         externalOrgId: "org-name-update",
@@ -224,7 +224,7 @@ describe("POST /resolve", () => {
       });
 
     const second = await request(app)
-      .post("/resolve")
+      .post("/internal/resolve")
       .set("x-api-key", API_KEY)
       .send({
         externalOrgId: "org-name-update",
@@ -243,7 +243,7 @@ describe("POST /resolve", () => {
 
   it("should not overwrite orgName when omitted on update", async () => {
     const first = await request(app)
-      .post("/resolve")
+      .post("/internal/resolve")
       .set("x-api-key", API_KEY)
       .send({
         externalOrgId: "org-name-preserve",
@@ -252,7 +252,7 @@ describe("POST /resolve", () => {
       });
 
     await request(app)
-      .post("/resolve")
+      .post("/internal/resolve")
       .set("x-api-key", API_KEY)
       .send({
         externalOrgId: "org-name-preserve",
@@ -268,7 +268,7 @@ describe("POST /resolve", () => {
 
   it("should reject request without API key", async () => {
     const res = await request(app)
-      .post("/resolve")
+      .post("/internal/resolve")
       .send({
         externalOrgId: "org-1",
         externalUserId: "user-1",
@@ -279,7 +279,7 @@ describe("POST /resolve", () => {
 
   it("should reject request with wrong API key", async () => {
     const res = await request(app)
-      .post("/resolve")
+      .post("/internal/resolve")
       .set("x-api-key", "wrong-key")
       .send({
         externalOrgId: "org-1",
@@ -289,28 +289,9 @@ describe("POST /resolve", () => {
     expect(res.status).toBe(401);
   });
 
-  it("should accept optional workflow tracking headers", async () => {
+  it("should not require x-run-id header (internal endpoint)", async () => {
     const res = await request(app)
-      .post("/resolve")
-      .set("x-api-key", API_KEY)
-      .set("x-campaign-id", "camp-resolve-1")
-      .set("x-brand-id", "brand-resolve-1,brand-resolve-2")
-      .set("x-workflow-slug", "resolve-flow")
-      .set("x-feature-slug", "resolve-identity")
-      .send({
-        externalOrgId: "org-wf-resolve",
-        externalUserId: "user-wf-resolve",
-        email: "wf-resolve@example.com",
-      });
-
-    expect(res.status).toBe(200);
-    expect(res.body.orgId).toBeDefined();
-    expect(res.body.userId).toBeDefined();
-  });
-
-  it("should not require x-run-id header (infrastructure endpoint)", async () => {
-    const res = await request(app)
-      .post("/resolve")
+      .post("/internal/resolve")
       .set("x-api-key", API_KEY)
       .send({
         externalOrgId: "org-no-run",

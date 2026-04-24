@@ -230,7 +230,7 @@
         }
       }
     },
-    "/users/{userId}": {
+    "/internal/users/{userId}": {
       "get": {
         "summary": "Get a user by internal UUID",
         "security": [
@@ -247,50 +247,6 @@
             "required": true,
             "name": "userId",
             "in": "path"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            },
-            "required": true,
-            "name": "x-run-id",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string"
-            },
-            "required": false,
-            "name": "x-campaign-id",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "Comma-separated list of brand UUIDs",
-              "example": "uuid1,uuid2,uuid3"
-            },
-            "required": false,
-            "description": "Comma-separated list of brand UUIDs",
-            "name": "x-brand-id",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string"
-            },
-            "required": false,
-            "name": "x-workflow-slug",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string"
-            },
-            "required": false,
-            "name": "x-feature-slug",
-            "in": "header"
           }
         ],
         "responses": {
@@ -337,7 +293,7 @@
         }
       }
     },
-    "/users": {
+    "/internal/users": {
       "get": {
         "summary": "List users filtered by org",
         "security": [
@@ -390,50 +346,6 @@
             "required": false,
             "name": "offset",
             "in": "query"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            },
-            "required": true,
-            "name": "x-run-id",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string"
-            },
-            "required": false,
-            "name": "x-campaign-id",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "Comma-separated list of brand UUIDs",
-              "example": "uuid1,uuid2,uuid3"
-            },
-            "required": false,
-            "description": "Comma-separated list of brand UUIDs",
-            "name": "x-brand-id",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string"
-            },
-            "required": false,
-            "name": "x-workflow-slug",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string"
-            },
-            "required": false,
-            "name": "x-feature-slug",
-            "in": "header"
           }
         ],
         "responses": {
@@ -480,7 +392,7 @@
         }
       }
     },
-    "/orgs/{orgId}/members/{userId}": {
+    "/internal/orgs/{orgId}/members/{userId}": {
       "get": {
         "summary": "Check if a user is a member of an org",
         "security": [
@@ -506,50 +418,6 @@
             "required": true,
             "name": "userId",
             "in": "path"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            },
-            "required": true,
-            "name": "x-run-id",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string"
-            },
-            "required": false,
-            "name": "x-campaign-id",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "Comma-separated list of brand UUIDs",
-              "example": "uuid1,uuid2,uuid3"
-            },
-            "required": false,
-            "description": "Comma-separated list of brand UUIDs",
-            "name": "x-brand-id",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string"
-            },
-            "required": false,
-            "name": "x-workflow-slug",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string"
-            },
-            "required": false,
-            "name": "x-feature-slug",
-            "in": "header"
           }
         ],
         "responses": {
@@ -599,58 +467,12 @@
         }
       }
     },
-    "/resolve": {
+    "/internal/resolve": {
       "post": {
         "summary": "Resolve external org/user IDs to internal UUIDs (idempotent upsert)",
         "security": [
           {
             "ApiKeyAuth": []
-          }
-        ],
-        "parameters": [
-          {
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            },
-            "required": true,
-            "name": "x-run-id",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string"
-            },
-            "required": false,
-            "name": "x-campaign-id",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string",
-              "description": "Comma-separated list of brand UUIDs",
-              "example": "uuid1,uuid2,uuid3"
-            },
-            "required": false,
-            "description": "Comma-separated list of brand UUIDs",
-            "name": "x-brand-id",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string"
-            },
-            "required": false,
-            "name": "x-workflow-slug",
-            "in": "header"
-          },
-          {
-            "schema": {
-              "type": "string"
-            },
-            "required": false,
-            "name": "x-feature-slug",
-            "in": "header"
           }
         ],
         "requestBody": {
