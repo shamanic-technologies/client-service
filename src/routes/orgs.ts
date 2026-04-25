@@ -28,7 +28,7 @@ router.get("/internal/orgs/:orgId/members/:userId", requireApiKey, async (req, r
     return res.status(404).json({ error: "User is not a member of this org" });
   }
 
-  return res.status(200).end();
+  return res.status(200).json({});
 });
 
 export default router;
