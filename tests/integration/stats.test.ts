@@ -8,7 +8,7 @@ import { sql } from "drizzle-orm";
 
 const API_KEY = "test_api_key";
 
-describe("GET /public/stats", () => {
+describe("GET /public/stats/users", () => {
   const app = createTestApp();
 
   beforeEach(async () => {
@@ -22,7 +22,7 @@ describe("GET /public/stats", () => {
 
   it("should return zeros when no data exists", async () => {
     const res = await request(app)
-      .get("/public/stats")
+      .get("/public/stats/users")
       .set("x-api-key", API_KEY);
 
     expect(res.status).toBe(200);
@@ -41,7 +41,7 @@ describe("GET /public/stats", () => {
     await insertTestUser({ externalId: "user-3", orgId: org2.id });
 
     const res = await request(app)
-      .get("/public/stats")
+      .get("/public/stats/users")
       .set("x-api-key", API_KEY);
 
     expect(res.status).toBe(200);
@@ -54,7 +54,7 @@ describe("GET /public/stats", () => {
     await insertTestUser({ externalId: "user-monthly", orgId: org.id });
 
     const res = await request(app)
-      .get("/public/stats")
+      .get("/public/stats/users")
       .set("x-api-key", API_KEY);
 
     expect(res.status).toBe(200);
@@ -86,7 +86,7 @@ describe("GET /public/stats", () => {
       .values({ externalId: "user-feb-1", orgId: org1.id, createdAt: new Date("2026-02-05T00:00:00Z") });
 
     const res = await request(app)
-      .get("/public/stats")
+      .get("/public/stats/users")
       .set("x-api-key", API_KEY);
 
     expect(res.status).toBe(200);
@@ -110,7 +110,7 @@ describe("GET /public/stats", () => {
       .values({ externalId: "org-jan", createdAt: new Date("2026-01-01T00:00:00Z") });
 
     const res = await request(app)
-      .get("/public/stats")
+      .get("/public/stats/users")
       .set("x-api-key", API_KEY);
 
     expect(res.status).toBe(200);
@@ -119,7 +119,7 @@ describe("GET /public/stats", () => {
   });
 
   it("should return 401 without API key", async () => {
-    const res = await request(app).get("/public/stats");
+    const res = await request(app).get("/public/stats/users");
     expect(res.status).toBe(401);
   });
 });

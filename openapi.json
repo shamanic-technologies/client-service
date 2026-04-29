@@ -508,7 +508,7 @@
         }
       }
     },
-    "/public/stats": {
+    "/public/stats/users": {
       "get": {
         "summary": "Get platform-wide stats (total orgs, users, monthly growth)",
         "security": [
