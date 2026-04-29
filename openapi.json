@@ -150,6 +150,47 @@
           "createdAt"
         ]
       },
+      "PublicStatsResponse": {
+        "type": "object",
+        "properties": {
+          "totalOrgs": {
+            "type": "integer"
+          },
+          "totalUsers": {
+            "type": "integer"
+          },
+          "monthlyGrowth": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MonthlyGrowthEntry"
+            }
+          }
+        },
+        "required": [
+          "totalOrgs",
+          "totalUsers",
+          "monthlyGrowth"
+        ]
+      },
+      "MonthlyGrowthEntry": {
+        "type": "object",
+        "properties": {
+          "month": {
+            "type": "string"
+          },
+          "newOrgs": {
+            "type": "integer"
+          },
+          "newUsers": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "month",
+          "newOrgs",
+          "newUsers"
+        ]
+      },
       "ResolveResponse": {
         "type": "object",
         "properties": {
@@ -446,6 +487,48 @@
           },
           "404": {
             "description": "User is not a member of the org",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/public/stats/users": {
+      "get": {
+        "summary": "Get platform-wide stats (total orgs, users, monthly growth)",
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Platform stats",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicStatsResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
             "content": {
               "application/json": {
                 "schema": {

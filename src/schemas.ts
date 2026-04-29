@@ -110,6 +110,24 @@ export const OrgMemberCheckParamsSchema = z
   })
   .openapi("OrgMemberCheckParams");
 
+// --- Public Stats ---
+
+const MonthlyGrowthEntrySchema = z
+  .object({
+    month: z.string(),
+    newOrgs: z.number().int(),
+    newUsers: z.number().int(),
+  })
+  .openapi("MonthlyGrowthEntry");
+
+const PublicStatsResponseSchema = z
+  .object({
+    totalOrgs: z.number().int(),
+    totalUsers: z.number().int(),
+    monthlyGrowth: z.array(MonthlyGrowthEntrySchema),
+  })
+  .openapi("PublicStatsResponse");
+
 // --- Security schemes ---
 
 registry.registerComponent("securitySchemes", "ApiKeyAuth", {
@@ -207,6 +225,27 @@ registry.registerPath({
     400: {
       description: "Invalid parameters",
       content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+    401: {
+      description: "Unauthorized",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+    500: {
+      description: "Internal server error",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+  },
+});
+
+registry.registerPath({
+  method: "get",
+  path: "/public/stats/users",
+  summary: "Get platform-wide stats (total orgs, users, monthly growth)",
+  security: [{ ApiKeyAuth: [] }],
+  responses: {
+    200: {
+      description: "Platform stats",
+      content: { "application/json": { schema: PublicStatsResponseSchema } },
     },
     401: {
       description: "Unauthorized",

@@ -12,6 +12,7 @@ import healthRoutes from "./routes/health.js";
 import resolveRoutes from "./routes/resolve.js";
 import usersRoutes from "./routes/users.js";
 import orgsRoutes from "./routes/orgs.js";
+import statsRoutes from "./routes/stats.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -47,6 +48,7 @@ app.use(healthRoutes);
 app.use(resolveRoutes);
 app.use(usersRoutes);
 app.use(orgsRoutes);
+app.use(statsRoutes);
 
 // 404 handler
 app.use((req, res) => {
