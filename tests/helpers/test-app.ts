@@ -4,6 +4,7 @@ import healthRoutes from "../../src/routes/health.js";
 import resolveRoutes from "../../src/routes/resolve.js";
 import usersRoutes from "../../src/routes/users.js";
 import orgsRoutes from "../../src/routes/orgs.js";
+import statsRoutes from "../../src/routes/stats.js";
 
 /**
  * Create a test Express app instance with all routes
@@ -18,6 +19,7 @@ export function createTestApp() {
   app.use(resolveRoutes);
   app.use(usersRoutes);
   app.use(orgsRoutes);
+  app.use(statsRoutes);
 
   // 404 handler
   app.use((req, res) => {
