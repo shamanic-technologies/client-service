@@ -9,7 +9,7 @@ const router = Router();
 /**
  * GET /public/stats - Platform-wide stats (total orgs, users, monthly growth)
  */
-router.get("/public/stats", requireApiKey, async (_req, res) => {
+router.get("/public/stats/users", requireApiKey, async (_req, res) => {
   try {
     const [
       [{ totalOrgs }],

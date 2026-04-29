@@ -239,7 +239,7 @@ registry.registerPath({
 
 registry.registerPath({
   method: "get",
-  path: "/public/stats",
+  path: "/public/stats/users",
   summary: "Get platform-wide stats (total orgs, users, monthly growth)",
   security: [{ ApiKeyAuth: [] }],
   responses: {
