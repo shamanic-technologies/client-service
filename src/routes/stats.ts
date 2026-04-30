@@ -1,10 +1,19 @@
 import { Router } from "express";
-import { count, sql } from "drizzle-orm";
+import { and, count, isNotNull, notInArray, notLike, sql } from "drizzle-orm";
 import { db } from "../db/index.js";
 import { orgs, users } from "../db/schema.js";
 import { requireApiKey } from "../middleware/auth.js";
 
 const router = Router();
+
+const TEST_USER_EXTERNAL_IDS = ["user_placeholder", "user_2test"];
+
+const realOrgsFilter = isNotNull(orgs.externalId);
+const realUsersFilter = and(
+  isNotNull(users.externalId),
+  notInArray(users.externalId, TEST_USER_EXTERNAL_IDS),
+  notLike(users.externalId, "system-%"),
+);
 
 /**
  * GET /public/stats - Platform-wide stats (total orgs, users, monthly growth)
@@ -17,14 +26,15 @@ router.get("/public/stats/users", requireApiKey, async (_req, res) => {
       monthlyOrgs,
       monthlyUsers,
     ] = await Promise.all([
-      db.select({ totalOrgs: count() }).from(orgs),
-      db.select({ totalUsers: count() }).from(users),
+      db.select({ totalOrgs: count() }).from(orgs).where(realOrgsFilter),
+      db.select({ totalUsers: count() }).from(users).where(realUsersFilter),
       db
         .select({
           month: sql<string>`TO_CHAR(DATE_TRUNC('month', ${orgs.createdAt}), 'YYYY-MM')`,
           count: count(),
         })
         .from(orgs)
+        .where(realOrgsFilter)
         .groupBy(sql`DATE_TRUNC('month', ${orgs.createdAt})`)
         .orderBy(sql`DATE_TRUNC('month', ${orgs.createdAt})`),
       db
@@ -33,6 +43,7 @@ router.get("/public/stats/users", requireApiKey, async (_req, res) => {
           count: count(),
         })
         .from(users)
+        .where(realUsersFilter)
         .groupBy(sql`DATE_TRUNC('month', ${users.createdAt})`)
         .orderBy(sql`DATE_TRUNC('month', ${users.createdAt})`),
     ]);

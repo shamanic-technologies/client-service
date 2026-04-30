@@ -118,6 +118,30 @@ describe("GET /public/stats/users", () => {
     expect(months).toEqual([...months].sort());
   });
 
+  it("should exclude test/dev data from counts", async () => {
+    const realOrg = await insertTestOrg({ externalId: "org-real" });
+    // Org without external_id (dev artifact)
+    await db.insert(orgs).values({ externalId: null });
+
+    // Real user
+    await insertTestUser({ externalId: "user-real", orgId: realOrg.id });
+    // Test user external IDs
+    await db.insert(users).values({ externalId: "user_placeholder", orgId: realOrg.id });
+    await db.insert(users).values({ externalId: "user_2test", orgId: realOrg.id });
+    // System account
+    await db.insert(users).values({ externalId: "system-migration", orgId: realOrg.id });
+    // User without external_id
+    await db.insert(users).values({ externalId: null, orgId: realOrg.id });
+
+    const res = await request(app)
+      .get("/public/stats/users")
+      .set("x-api-key", API_KEY);
+
+    expect(res.status).toBe(200);
+    expect(res.body.totalOrgs).toBe(1);
+    expect(res.body.totalUsers).toBe(1);
+  });
+
   it("should return 401 without API key", async () => {
     const res = await request(app).get("/public/stats/users");
     expect(res.status).toBe(401);
