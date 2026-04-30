@@ -1,19 +1,16 @@
 import { Router } from "express";
-import { and, count, isNotNull, notInArray, notLike, sql } from "drizzle-orm";
+import { and, count, like, ne, sql } from "drizzle-orm";
 import { db } from "../db/index.js";
 import { orgs, users } from "../db/schema.js";
 import { requireApiKey } from "../middleware/auth.js";
 
 const router = Router();
 
-const TEST_USER_EXTERNAL_IDS = ["user_placeholder", "user_2test"];
-
-const realOrgsFilter = isNotNull(orgs.externalId);
-const realUsersFilter = and(
-  isNotNull(users.externalId),
-  notInArray(users.externalId, TEST_USER_EXTERNAL_IDS),
-  notLike(users.externalId, "system-%"),
+const realOrgsFilter = and(
+  like(orgs.externalId, "org_%"),
+  ne(orgs.externalId, "org_2test"),
 );
+const realUsersFilter = like(users.externalId, "user_%");
 
 /**
  * GET /public/stats - Platform-wide stats (total orgs, users, monthly growth)
