@@ -5,6 +5,8 @@ import resolveRoutes from "../../src/routes/resolve.js";
 import usersRoutes from "../../src/routes/users.js";
 import orgsRoutes from "../../src/routes/orgs.js";
 import statsRoutes from "../../src/routes/stats.js";
+import invitesRoutes from "../../src/routes/invites.js";
+import waitlistRoutes from "../../src/routes/waitlist.js";
 
 /**
  * Create a test Express app instance with all routes
@@ -20,6 +22,8 @@ export function createTestApp() {
   app.use(usersRoutes);
   app.use(orgsRoutes);
   app.use(statsRoutes);
+  app.use(invitesRoutes);
+  app.use(waitlistRoutes);
 
   // 404 handler
   app.use((req, res) => {

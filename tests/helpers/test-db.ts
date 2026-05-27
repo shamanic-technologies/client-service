@@ -1,10 +1,12 @@
 import { db, sql } from "../../src/db/index.js";
-import { orgs, users } from "../../src/db/schema.js";
+import { orgs, users, invites, waitlist } from "../../src/db/schema.js";
 
 /**
  * Clean all test data from the database
  */
 export async function cleanTestData() {
+  await db.delete(invites);
+  await db.delete(waitlist);
   await db.delete(users);
   await db.delete(orgs);
 }
@@ -12,12 +14,13 @@ export async function cleanTestData() {
 /**
  * Insert a test org
  */
-export async function insertTestOrg(data: { externalId?: string; name?: string } = {}) {
+export async function insertTestOrg(data: { externalId?: string; name?: string; slug?: string } = {}) {
   const [org] = await db
     .insert(orgs)
     .values({
       externalId: data.externalId || `ext-org-${Date.now()}`,
       name: data.name,
+      slug: data.slug,
     })
     .returning();
   return org;
