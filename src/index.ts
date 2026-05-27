@@ -13,6 +13,8 @@ import resolveRoutes from "./routes/resolve.js";
 import usersRoutes from "./routes/users.js";
 import orgsRoutes from "./routes/orgs.js";
 import statsRoutes from "./routes/stats.js";
+import invitesRoutes from "./routes/invites.js";
+import waitlistRoutes from "./routes/waitlist.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -49,6 +51,8 @@ app.use(resolveRoutes);
 app.use(usersRoutes);
 app.use(orgsRoutes);
 app.use(statsRoutes);
+app.use(invitesRoutes);
+app.use(waitlistRoutes);
 
 // 404 handler
 app.use((req, res) => {

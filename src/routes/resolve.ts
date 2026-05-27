@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { sql } from "drizzle-orm";
 import { db } from "../db/index.js";
 import { users, orgs } from "../db/schema.js";
 import { requireApiKey } from "../middleware/auth.js";
@@ -9,6 +10,10 @@ const router = Router();
 /**
  * POST /internal/resolve - Resolve external IDs to internal UUIDs
  * Idempotent: creates org/user if they don't exist, returns existing if they do.
+ *
+ * orgSlug, when supplied, is set on the org row only when the existing slug
+ * is NULL (self-healing backfill from upstream Clerk org slug). Pre-existing
+ * slugs are never overwritten — Clerk slugs are immutable per org.
  */
 router.post("/internal/resolve", requireApiKey, async (req, res) => {
   try {
@@ -17,25 +22,33 @@ router.post("/internal/resolve", requireApiKey, async (req, res) => {
       return res.status(400).json({ error: "Invalid request body", details: parsed.error.flatten() });
     }
 
-    const { externalOrgId, externalUserId, email, firstName, lastName, imageUrl, orgName } = parsed.data;
+    const { externalOrgId, externalUserId, email, firstName, lastName, imageUrl, orgName, orgSlug } = parsed.data;
 
-    // Upsert org with optional name
-    const orgData = {
+    const orgInsertData = {
+      externalId: externalOrgId,
       ...(orgName !== undefined && { name: orgName }),
+      ...(orgSlug !== undefined && { slug: orgSlug }),
     };
+
+    const orgUpdateSet: Record<string, unknown> = {
+      ...(orgName !== undefined && { name: orgName }),
+      updatedAt: new Date(),
+    };
+    if (orgSlug !== undefined) {
+      orgUpdateSet.slug = sql`COALESCE(${orgs.slug}, ${orgSlug})`;
+    }
 
     const [org] = await db
       .insert(orgs)
-      .values({ externalId: externalOrgId, ...orgData })
+      .values(orgInsertData)
       .onConflictDoUpdate({
         target: [orgs.externalId],
-        set: { ...orgData, updatedAt: new Date() },
+        set: orgUpdateSet,
       })
       .returning();
 
     const orgCreated = org.createdAt.getTime() === org.updatedAt.getTime();
 
-    // Upsert user with optional profile data
     const profileData = {
       ...(email !== undefined && { email }),
       ...(firstName !== undefined && { firstName }),
@@ -61,7 +74,7 @@ router.post("/internal/resolve", requireApiKey, async (req, res) => {
       userCreated,
     });
   } catch (error) {
-    console.error("Resolve error:", error);
+    console.error("[client-service] Resolve error:", error);
     return res.status(500).json({ error: "Failed to resolve identity" });
   }
 });

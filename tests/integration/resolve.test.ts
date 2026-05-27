@@ -266,6 +266,81 @@ describe("POST /internal/resolve", () => {
     expect(row.name).toBe("Preserved Name");
   });
 
+  it("should persist orgSlug on create", async () => {
+    const res = await request(app)
+      .post("/internal/resolve")
+      .set("x-api-key", API_KEY)
+      .send({
+        externalOrgId: "org-with-slug",
+        externalUserId: "user-org-slug",
+        orgName: "Stripe",
+        orgSlug: "stripe",
+      });
+
+    expect(res.status).toBe(200);
+
+    const [row] = await db
+      .select({ slug: orgs.slug })
+      .from(orgs)
+      .where(eq(orgs.id, res.body.orgId));
+    expect(row.slug).toBe("stripe");
+  });
+
+  it("should backfill orgSlug on second resolve when initially absent", async () => {
+    const first = await request(app)
+      .post("/internal/resolve")
+      .set("x-api-key", API_KEY)
+      .send({
+        externalOrgId: "org-slug-backfill",
+        externalUserId: "user-slug-backfill",
+        orgName: "Acme",
+      });
+    expect(first.status).toBe(200);
+
+    const second = await request(app)
+      .post("/internal/resolve")
+      .set("x-api-key", API_KEY)
+      .send({
+        externalOrgId: "org-slug-backfill",
+        externalUserId: "user-slug-backfill",
+        orgSlug: "acme-co",
+      });
+    expect(second.status).toBe(200);
+
+    const [row] = await db
+      .select({ slug: orgs.slug })
+      .from(orgs)
+      .where(eq(orgs.id, second.body.orgId));
+    expect(row.slug).toBe("acme-co");
+  });
+
+  it("should NOT overwrite existing orgSlug on subsequent resolve (Clerk slugs are immutable)", async () => {
+    const first = await request(app)
+      .post("/internal/resolve")
+      .set("x-api-key", API_KEY)
+      .send({
+        externalOrgId: "org-slug-immutable",
+        externalUserId: "user-slug-immutable",
+        orgSlug: "original-slug",
+      });
+    expect(first.status).toBe(200);
+
+    await request(app)
+      .post("/internal/resolve")
+      .set("x-api-key", API_KEY)
+      .send({
+        externalOrgId: "org-slug-immutable",
+        externalUserId: "user-slug-immutable",
+        orgSlug: "different-slug",
+      });
+
+    const [row] = await db
+      .select({ slug: orgs.slug })
+      .from(orgs)
+      .where(eq(orgs.id, first.body.orgId));
+    expect(row.slug).toBe("original-slug");
+  });
+
   it("should reject request without API key", async () => {
     const res = await request(app)
       .post("/internal/resolve")
