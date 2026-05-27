@@ -36,6 +36,7 @@ export const ResolveBodySchema = z
     lastName: z.string().optional(),
     imageUrl: z.string().url().optional(),
     orgName: z.string().optional(),
+    orgSlug: z.string().min(1).optional(),
   })
   .openapi("ResolveBody");
 
@@ -127,6 +128,86 @@ const PublicStatsResponseSchema = z
     monthlyGrowth: z.array(MonthlyGrowthEntrySchema),
   })
   .openapi("PublicStatsResponse");
+
+// --- Invites ---
+
+export const ValidateInviteBodySchema = z
+  .object({
+    code: z.string().min(1),
+  })
+  .openapi("ValidateInviteBody");
+
+const ValidateInviteResponseSchema = z
+  .object({
+    valid: z.boolean(),
+    inviterOrgName: z.string().optional(),
+  })
+  .openapi("ValidateInviteResponse");
+
+export const ClaimInviteBodySchema = z
+  .object({
+    code: z.string().min(1),
+    inviteeOrgId: z.string().uuid(),
+  })
+  .openapi("ClaimInviteBody");
+
+const ClaimInviteResponseSchema = z
+  .object({
+    ok: z.boolean(),
+    inviterOrgId: z.string().uuid(),
+  })
+  .openapi("ClaimInviteResponse");
+
+const ClaimInviteCappedResponseSchema = z
+  .object({
+    error: z.string(),
+    used: z.number().int(),
+    total: z.number().int(),
+  })
+  .openapi("ClaimInviteCappedResponse");
+
+export const InviteStatusParamsSchema = z
+  .object({
+    orgId: z.string().uuid(),
+  })
+  .openapi("InviteStatusParams");
+
+const InviteStatusResponseSchema = z
+  .object({
+    used: z.number().int(),
+    total: z.number().int(),
+    code: z.string().nullable(),
+    expired: z.boolean(),
+  })
+  .openapi("InviteStatusResponse");
+
+// --- Waitlist ---
+
+export const WaitlistRequestBodySchema = z
+  .object({
+    email: z.string().email(),
+    brandUrl: z.string().min(1),
+  })
+  .openapi("WaitlistRequestBody");
+
+const WaitlistRequestResponseSchema = z
+  .object({
+    ok: z.literal(true),
+    position: z.number().int(),
+  })
+  .openapi("WaitlistRequestResponse");
+
+export const WaitlistPositionQuerySchema = z
+  .object({
+    email: z.string().email(),
+  })
+  .openapi("WaitlistPositionQuery");
+
+const WaitlistPositionResponseSchema = z
+  .object({
+    position: z.number().int(),
+  })
+  .openapi("WaitlistPositionResponse");
 
 // --- Security schemes ---
 
@@ -279,6 +360,168 @@ registry.registerPath({
     },
     401: {
       description: "Unauthorized",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+    500: {
+      description: "Internal server error",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+  },
+});
+
+registry.registerPath({
+  method: "post",
+  path: "/public/invites/validate",
+  summary: "Validate an invite code (slug + cap check)",
+  security: [{ ApiKeyAuth: [] }],
+  request: {
+    body: {
+      content: { "application/json": { schema: ValidateInviteBodySchema } },
+    },
+  },
+  responses: {
+    200: {
+      description: "Validation result (valid=false covers unknown-slug and capped-org)",
+      content: { "application/json": { schema: ValidateInviteResponseSchema } },
+    },
+    400: {
+      description: "Invalid request body",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+    401: {
+      description: "Unauthorized",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+    500: {
+      description: "Internal server error",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+  },
+});
+
+registry.registerPath({
+  method: "post",
+  path: "/internal/invites/claim",
+  summary: "Claim an invite code for a freshly-created org (idempotent)",
+  security: [{ ApiKeyAuth: [] }],
+  request: {
+    body: {
+      content: { "application/json": { schema: ClaimInviteBodySchema } },
+    },
+  },
+  responses: {
+    200: {
+      description: "Invite claimed (or already claimed by same invitee)",
+      content: { "application/json": { schema: ClaimInviteResponseSchema } },
+    },
+    400: {
+      description: "Invalid request body",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+    401: {
+      description: "Unauthorized",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+    404: {
+      description: "Unknown invite code or invitee org",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+    409: {
+      description: "Invite cap reached (3 successful signups already)",
+      content: { "application/json": { schema: ClaimInviteCappedResponseSchema } },
+    },
+    500: {
+      description: "Internal server error",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+  },
+});
+
+registry.registerPath({
+  method: "get",
+  path: "/internal/orgs/{orgId}/invites/status",
+  summary: "Get invite usage status for an org",
+  security: [{ ApiKeyAuth: [] }],
+  request: {
+    params: InviteStatusParamsSchema,
+  },
+  responses: {
+    200: {
+      description: "Invite status",
+      content: { "application/json": { schema: InviteStatusResponseSchema } },
+    },
+    400: {
+      description: "Invalid orgId",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+    401: {
+      description: "Unauthorized",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+    404: {
+      description: "Org not found",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+    500: {
+      description: "Internal server error",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+  },
+});
+
+registry.registerPath({
+  method: "post",
+  path: "/public/waitlist/request-access",
+  summary: "Request waitlist access (idempotent on email)",
+  security: [{ ApiKeyAuth: [] }],
+  request: {
+    body: {
+      content: { "application/json": { schema: WaitlistRequestBodySchema } },
+    },
+  },
+  responses: {
+    200: {
+      description: "Waitlist entry created or existing position returned",
+      content: { "application/json": { schema: WaitlistRequestResponseSchema } },
+    },
+    400: {
+      description: "Invalid request body",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+    401: {
+      description: "Unauthorized",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+    500: {
+      description: "Internal server error",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+  },
+});
+
+registry.registerPath({
+  method: "get",
+  path: "/public/waitlist/position",
+  summary: "Get waitlist position for an email",
+  security: [{ ApiKeyAuth: [] }],
+  request: {
+    query: WaitlistPositionQuerySchema,
+  },
+  responses: {
+    200: {
+      description: "Position found",
+      content: { "application/json": { schema: WaitlistPositionResponseSchema } },
+    },
+    400: {
+      description: "Invalid email",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+    401: {
+      description: "Unauthorized",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+    404: {
+      description: "Email not on waitlist",
       content: { "application/json": { schema: ErrorResponseSchema } },
     },
     500: {
