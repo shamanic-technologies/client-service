@@ -111,6 +111,36 @@ export const OrgMemberCheckParamsSchema = z
   })
   .openapi("OrgMemberCheckParams");
 
+// --- Org Teardown ---
+
+export const OrgTeardownParamsSchema = z
+  .object({
+    orgId: z.string().uuid(),
+  })
+  .openapi("OrgTeardownParams");
+
+const OrgTeardownResponseSchema = z
+  .object({
+    orgId: z.string().uuid(),
+    clientService: z.object({
+      orgs: z.number().int(),
+      users: z.number().int(),
+      invites: z.number().int(),
+    }),
+    clerk: z.enum(["deleted", "not_found"]),
+    stripe: z.literal("deleted"),
+  })
+  .openapi("OrgTeardownResponse");
+
+const UpstreamErrorResponseSchema = z
+  .object({
+    error: z.string(),
+    provider: z.enum(["stripe", "clerk"]),
+    upstreamStatus: z.number().int(),
+    upstreamBody: z.string(),
+  })
+  .openapi("UpstreamErrorResponse");
+
 // --- Public Stats ---
 
 const MonthlyGrowthEntrySchema = z
@@ -310,6 +340,38 @@ registry.registerPath({
     401: {
       description: "Unauthorized",
       content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+    500: {
+      description: "Internal server error",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+  },
+});
+
+registry.registerPath({
+  method: "delete",
+  path: "/internal/orgs/{orgId}",
+  summary: "Cascade-teardown an org: delete client-service data + Clerk org + Stripe customer",
+  security: [{ ApiKeyAuth: [] }],
+  request: {
+    params: OrgTeardownParamsSchema,
+  },
+  responses: {
+    200: {
+      description: "Teardown result (idempotent: re-run reports zero rows)",
+      content: { "application/json": { schema: OrgTeardownResponseSchema } },
+    },
+    400: {
+      description: "Invalid orgId",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+    401: {
+      description: "Unauthorized",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+    502: {
+      description: "Upstream provider (Clerk or stripe-service) failed — fail loud, no partial success",
+      content: { "application/json": { schema: UpstreamErrorResponseSchema } },
     },
     500: {
       description: "Internal server error",

@@ -150,6 +150,80 @@
           "createdAt"
         ]
       },
+      "OrgTeardownResponse": {
+        "type": "object",
+        "properties": {
+          "orgId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "clientService": {
+            "type": "object",
+            "properties": {
+              "orgs": {
+                "type": "integer"
+              },
+              "users": {
+                "type": "integer"
+              },
+              "invites": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "orgs",
+              "users",
+              "invites"
+            ]
+          },
+          "clerk": {
+            "type": "string",
+            "enum": [
+              "deleted",
+              "not_found"
+            ]
+          },
+          "stripe": {
+            "type": "string",
+            "enum": [
+              "deleted"
+            ]
+          }
+        },
+        "required": [
+          "orgId",
+          "clientService",
+          "clerk",
+          "stripe"
+        ]
+      },
+      "UpstreamErrorResponse": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "string"
+          },
+          "provider": {
+            "type": "string",
+            "enum": [
+              "stripe",
+              "clerk"
+            ]
+          },
+          "upstreamStatus": {
+            "type": "integer"
+          },
+          "upstreamBody": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "error",
+          "provider",
+          "upstreamStatus",
+          "upstreamBody"
+        ]
+      },
       "PublicStatsResponse": {
         "type": "object",
         "properties": {
@@ -653,6 +727,79 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/internal/orgs/{orgId}": {
+      "delete": {
+        "summary": "Cascade-teardown an org: delete client-service data + Clerk org + Stripe customer",
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "orgId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Teardown result (idempotent: re-run reports zero rows)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrgTeardownResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid orgId",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Upstream provider (Clerk or stripe-service) failed — fail loud, no partial success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpstreamErrorResponse"
                 }
               }
             }

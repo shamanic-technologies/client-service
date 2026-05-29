@@ -25,11 +25,16 @@ User and organization management service with Clerk authentication and PostgreSQ
 - `GET /orgs/me` - Get authenticated org
 - `GET /orgs/by-clerk/:clerkOrgId` - Lookup by Clerk org ID (no auth)
 
+### Internal (service-to-service, `x-api-key`)
+- `DELETE /internal/orgs/:orgId` - Cascade-teardown an org (`:orgId` = internal org UUID). Deletes client-service data + the org's Clerk organization (online) + the org's Stripe customer (online, via stripe-service). Fail-loud per step (non-2xx with the real upstream error on any failure), idempotent re-run.
+
 ## Environment Variables
 
 ```bash
 CLIENT_SERVICE_DATABASE_URL   # PostgreSQL connection string (required)
 CLERK_SECRET_KEY              # Clerk SDK secret (required)
+STRIPE_SERVICE_URL            # stripe-service base URL (required for org teardown)
+STRIPE_SERVICE_API_KEY        # stripe-service API key (required for org teardown)
 PORT                          # Server port (default: 3002)
 SENTRY_DSN                    # Sentry error tracking (optional)
 NODE_ENV                      # development|production|test
