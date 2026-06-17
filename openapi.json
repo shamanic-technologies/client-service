@@ -176,11 +176,28 @@
               "invites"
             ]
           },
-          "clerk": {
+          "billing": {
             "type": "string",
             "enum": [
-              "deleted",
-              "not_found"
+              "deleted"
+            ]
+          },
+          "campaign": {
+            "type": "string",
+            "enum": [
+              "deleted"
+            ]
+          },
+          "runs": {
+            "type": "string",
+            "enum": [
+              "deleted"
+            ]
+          },
+          "key": {
+            "type": "string",
+            "enum": [
+              "deleted"
             ]
           },
           "stripe": {
@@ -188,13 +205,24 @@
             "enum": [
               "deleted"
             ]
+          },
+          "clerk": {
+            "type": "string",
+            "enum": [
+              "deleted",
+              "not_found"
+            ]
           }
         },
         "required": [
           "orgId",
           "clientService",
-          "clerk",
-          "stripe"
+          "billing",
+          "campaign",
+          "runs",
+          "key",
+          "stripe",
+          "clerk"
         ]
       },
       "UpstreamErrorResponse": {
@@ -206,6 +234,10 @@
           "provider": {
             "type": "string",
             "enum": [
+              "billing",
+              "campaign",
+              "runs",
+              "key",
               "stripe",
               "clerk"
             ]
@@ -736,7 +768,7 @@
     },
     "/internal/orgs/{orgId}": {
       "delete": {
-        "summary": "Cascade-teardown an org: delete client-service data + Clerk org + Stripe customer",
+        "summary": "Cascade-teardown an org across spend/security producers, Stripe, Clerk, and client-service",
         "security": [
           {
             "ApiKeyAuth": []
@@ -795,7 +827,7 @@
             }
           },
           "502": {
-            "description": "Upstream provider (Clerk or stripe-service) failed — fail loud, no partial success",
+            "description": "Upstream producer/provider (billing, campaign, runs, key, stripe-service, or Clerk) failed — fail loud, no partial success",
             "content": {
               "application/json": {
                 "schema": {
