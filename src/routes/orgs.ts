@@ -6,6 +6,13 @@ import { requireApiKey } from "../middleware/auth.js";
 import { OrgMemberCheckParamsSchema, OrgTeardownParamsSchema } from "../schemas.js";
 import { deleteClerkOrganization, ClerkServiceError } from "../lib/clerk-client.js";
 import { deleteStripeCustomerByOrg, StripeServiceError } from "../lib/stripe-service-client.js";
+import {
+  deleteBillingByOrg,
+  deleteCampaignsByOrg,
+  deleteKeysByOrg,
+  deleteRunsByOrg,
+  InternalServiceTeardownError,
+} from "../lib/internal-service-client.js";
 
 const router = Router();
 
@@ -38,11 +45,12 @@ router.get("/internal/orgs/:orgId/members/:userId", requireApiKey, async (req, r
  *
  * `:orgId` is the internal client-service org UUID (the platform `x-org-id`).
  * Orchestrates a full teardown of everything client-service owns for the org:
- *   1. stripe-service deletes the org's Stripe customer online (keyed by the
+ *   1. spend/security producer services delete or neutralize their org state.
+ *   2. stripe-service deletes the org's Stripe customer online (keyed by the
  *      same internal UUID = stripe-service `metadata.org_id`).
- *   2. Clerk deletes the org online (keyed by the org's `external_id`, which
+ *   3. Clerk deletes the org online (keyed by the org's `external_id`, which
  *      client-service owns the mapping for).
- *   3. client-service deletes its own org-scoped rows (users, invites, org) —
+ *   4. client-service deletes its own org-scoped rows (users, invites, org) —
  *      LAST, so the `external_id` mapping stays available for the Clerk step
  *      through every fail-loud retry.
  *
@@ -69,16 +77,22 @@ router.delete("/internal/orgs/:orgId", requireApiKey, async (req, res) => {
       .where(eq(orgs.id, orgId))
       .limit(1);
 
-    // 1. Stripe customer (online, via stripe-service). Fail loud on real error.
+    // 1. Spend/security producers. Fail loud before deleting local identity.
+    const billing = await deleteBillingByOrg(orgId);
+    const campaign = await deleteCampaignsByOrg(orgId);
+    const runs = await deleteRunsByOrg(orgId);
+    const key = await deleteKeysByOrg(orgId);
+
+    // 2. Stripe customer (online, via stripe-service). Fail loud on real error.
     const stripe = await deleteStripeCustomerByOrg(orgId);
 
-    // 2. Clerk organization (online). Keyed by external_id. Fail loud on real error.
+    // 3. Clerk organization (online). Keyed by external_id. Fail loud on real error.
     let clerk: "deleted" | "not_found" = "not_found";
     if (org?.externalId) {
       clerk = await deleteClerkOrganization(org.externalId);
     }
 
-    // 3. client-service org-scoped data (LAST). One transaction.
+    // 4. client-service org-scoped data (LAST). One transaction.
     let clientService = { orgs: 0, users: 0, invites: 0 };
     if (org) {
       clientService = await db.transaction(async (tx) => {
@@ -108,8 +122,16 @@ router.delete("/internal/orgs/:orgId", requireApiKey, async (req, res) => {
       });
     }
 
-    return res.status(200).json({ orgId, clientService, clerk, stripe });
+    return res.status(200).json({ orgId, clientService, billing, campaign, runs, key, stripe, clerk });
   } catch (error) {
+    if (error instanceof InternalServiceTeardownError) {
+      return res.status(502).json({
+        error: `${error.provider}-service org teardown failed`,
+        provider: error.provider,
+        upstreamStatus: error.status,
+        upstreamBody: error.body,
+      });
+    }
     if (error instanceof StripeServiceError) {
       return res.status(502).json({
         error: "stripe-service customer delete failed",
