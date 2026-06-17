@@ -104,18 +104,18 @@ describe("DELETE /internal/orgs/:orgId (cascade teardown)", () => {
     expect(vi.mocked(deleteStripeCustomerByOrg)).toHaveBeenCalledWith(org.id);
     expect(vi.mocked(deleteClerkOrganization)).toHaveBeenCalledWith("org_clerk_xyz");
 
-    expect(vi.mocked(deleteBillingByOrg).mock.invocationCallOrder[0]).toBeLessThan(
-      vi.mocked(deleteStripeCustomerByOrg).mock.invocationCallOrder[0],
-    );
-    expect(vi.mocked(deleteCampaignsByOrg).mock.invocationCallOrder[0]).toBeLessThan(
-      vi.mocked(deleteStripeCustomerByOrg).mock.invocationCallOrder[0],
-    );
-    expect(vi.mocked(deleteRunsByOrg).mock.invocationCallOrder[0]).toBeLessThan(
-      vi.mocked(deleteStripeCustomerByOrg).mock.invocationCallOrder[0],
-    );
-    expect(vi.mocked(deleteKeysByOrg).mock.invocationCallOrder[0]).toBeLessThan(
-      vi.mocked(deleteStripeCustomerByOrg).mock.invocationCallOrder[0],
-    );
+    const billingOrder = vi.mocked(deleteBillingByOrg).mock.invocationCallOrder[0];
+    const campaignOrder = vi.mocked(deleteCampaignsByOrg).mock.invocationCallOrder[0];
+    const runsOrder = vi.mocked(deleteRunsByOrg).mock.invocationCallOrder[0];
+    const keyOrder = vi.mocked(deleteKeysByOrg).mock.invocationCallOrder[0];
+    const stripeOrder = vi.mocked(deleteStripeCustomerByOrg).mock.invocationCallOrder[0];
+    const clerkOrder = vi.mocked(deleteClerkOrganization).mock.invocationCallOrder[0];
+
+    expect(billingOrder).toBeLessThan(campaignOrder);
+    expect(campaignOrder).toBeLessThan(runsOrder);
+    expect(runsOrder).toBeLessThan(keyOrder);
+    expect(keyOrder).toBeLessThan(stripeOrder);
+    expect(stripeOrder).toBeLessThan(clerkOrder);
   });
 
   it("is idempotent: unknown org returns 200 with zero rows", async () => {
