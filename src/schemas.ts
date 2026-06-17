@@ -355,7 +355,7 @@ registry.registerPath({
 registry.registerPath({
   method: "delete",
   path: "/internal/orgs/{orgId}",
-  summary: "Cascade-teardown an org: delete client-service data + Clerk org + Stripe customer",
+  summary: "Cascade-teardown an org across spend/security producers, Stripe, Clerk, and client-service",
   security: [{ ApiKeyAuth: [] }],
   request: {
     params: OrgTeardownParamsSchema,
@@ -374,7 +374,8 @@ registry.registerPath({
       content: { "application/json": { schema: ErrorResponseSchema } },
     },
     502: {
-      description: "Upstream provider (Clerk or stripe-service) failed — fail loud, no partial success",
+      description:
+        "Upstream producer/provider (billing, campaign, runs, key, stripe-service, or Clerk) failed — fail loud, no partial success",
       content: { "application/json": { schema: UpstreamErrorResponseSchema } },
     },
     500: {

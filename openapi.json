@@ -768,7 +768,7 @@
     },
     "/internal/orgs/{orgId}": {
       "delete": {
-        "summary": "Cascade-teardown an org: delete client-service data + Clerk org + Stripe customer",
+        "summary": "Cascade-teardown an org across spend/security producers, Stripe, Clerk, and client-service",
         "security": [
           {
             "ApiKeyAuth": []
@@ -827,7 +827,7 @@
             }
           },
           "502": {
-            "description": "Upstream provider (Clerk or stripe-service) failed — fail loud, no partial success",
+            "description": "Upstream producer/provider (billing, campaign, runs, key, stripe-service, or Clerk) failed — fail loud, no partial success",
             "content": {
               "application/json": {
                 "schema": {

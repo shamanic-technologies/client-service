@@ -26,13 +26,21 @@ User and organization management service with Clerk authentication and PostgreSQ
 - `GET /orgs/by-clerk/:clerkOrgId` - Lookup by Clerk org ID (no auth)
 
 ### Internal (service-to-service, `x-api-key`)
-- `DELETE /internal/orgs/:orgId` - Cascade-teardown an org (`:orgId` = internal org UUID). Deletes client-service data + the org's Clerk organization (online) + the org's Stripe customer (online, via stripe-service). Fail-loud per step (non-2xx with the real upstream error on any failure), idempotent re-run.
+- `DELETE /internal/orgs/:orgId` - Cascade-teardown an org (`:orgId` = internal org UUID). Calls billing-service, campaign-service, runs-service, key-service, stripe-service, Clerk, then deletes client-service data. Fail-loud per step (non-2xx with the real upstream error on any failure), idempotent re-run.
 
 ## Environment Variables
 
 ```bash
 CLIENT_SERVICE_DATABASE_URL   # PostgreSQL connection string (required)
 CLERK_SECRET_KEY              # Clerk SDK secret (required)
+BILLING_SERVICE_URL           # billing-service base URL (required for org teardown)
+BILLING_SERVICE_API_KEY       # billing-service API key (required for org teardown)
+CAMPAIGN_SERVICE_URL          # campaign-service base URL (required for org teardown)
+CAMPAIGN_SERVICE_API_KEY      # campaign-service API key (required for org teardown)
+RUNS_SERVICE_URL              # runs-service base URL (required for org teardown)
+RUNS_SERVICE_API_KEY          # runs-service API key (required for org teardown)
+KEY_SERVICE_URL               # key-service base URL (required for org teardown)
+KEY_SERVICE_API_KEY           # key-service API key (required for org teardown)
 STRIPE_SERVICE_URL            # stripe-service base URL (required for org teardown)
 STRIPE_SERVICE_API_KEY        # stripe-service API key (required for org teardown)
 PORT                          # Server port (default: 3002)
