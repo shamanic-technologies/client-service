@@ -214,7 +214,19 @@
             ]
           },
           "clerkUsers": {
-            "type": "integer"
+            "type": "object",
+            "properties": {
+              "deleted": {
+                "type": "integer"
+              },
+              "notFound": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "deleted",
+              "notFound"
+            ]
           }
         },
         "required": [
@@ -845,7 +857,7 @@
     },
     "/internal/orgs/by-external/{externalOrgId}": {
       "delete": {
-        "summary": "Cascade-teardown an org by its Clerk org id (external_id). Resolves external_id -> internal UUID read-only (404 if unknown, never creates)",
+        "summary": "Cascade-teardown an org by its external Clerk org id (resolves external_id -> internal UUID read-only, 404 if unknown)",
         "security": [
           {
             "ApiKeyAuth": []
@@ -894,7 +906,7 @@
             }
           },
           "404": {
-            "description": "No org found for the given Clerk org id (nothing created)",
+            "description": "No org found for the given external id (nothing created)",
             "content": {
               "application/json": {
                 "schema": {

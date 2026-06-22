@@ -1,17 +1,16 @@
 import { createClerkClient, type ClerkClient } from "@clerk/backend";
 
 /**
- * Error thrown when Clerk returns a non-404 failure deleting a resource
- * (organization or user). Carries the upstream HTTP status + body so the route
- * can fail loud with the real provider error (never a swallowed 200).
+ * Error thrown when Clerk returns a non-404 failure deleting an organization.
+ * Carries the upstream HTTP status + body so the route can fail loud with the
+ * real provider error (never a swallowed 200).
  */
 export class ClerkServiceError extends Error {
   constructor(
     public readonly status: number,
     public readonly body: string,
-    resource: string = "org",
   ) {
-    super(`[client-service] Clerk ${resource} delete failed (${status}): ${body}`);
+    super(`[client-service] Clerk org delete failed (${status}): ${body}`);
     this.name = "ClerkServiceError";
   }
 }
@@ -69,12 +68,12 @@ export async function deleteClerkOrganization(clerkOrgId: string): Promise<Clerk
     return "deleted";
   } catch (err: unknown) {
     if (isNotFound(err)) return "not_found";
-    throw new ClerkServiceError(errorStatus(err), errorBody(err), "org");
+    throw new ClerkServiceError(errorStatus(err), errorBody(err));
   }
 }
 
 /**
- * Delete a Clerk user online, keyed by its Clerk user id (users.external_id).
+ * Delete a Clerk user online, keyed by its Clerk user id.
  * Idempotent: a 404 (already-deleted) resolves to "not_found", not an error.
  * Any other failure throws ClerkServiceError (fail loud).
  */
@@ -85,6 +84,6 @@ export async function deleteClerkUser(clerkUserId: string): Promise<ClerkDeleteR
     return "deleted";
   } catch (err: unknown) {
     if (isNotFound(err)) return "not_found";
-    throw new ClerkServiceError(errorStatus(err), errorBody(err), "user");
+    throw new ClerkServiceError(errorStatus(err), errorBody(err));
   }
 }

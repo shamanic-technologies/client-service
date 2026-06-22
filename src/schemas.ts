@@ -139,10 +139,10 @@ const OrgTeardownResponseSchema = z
     key: z.literal("deleted"),
     stripe: z.literal("deleted"),
     clerk: z.enum(["deleted", "not_found"]),
-    // Count of the org's Clerk user accounts deleted online (frees their emails
-    // for reuse). Counts only deletes that returned "deleted"; already-gone users
-    // (Clerk 404) are not counted, so a re-run reports 0.
-    clerkUsers: z.number().int(),
+    clerkUsers: z.object({
+      deleted: z.number().int(),
+      notFound: z.number().int(),
+    }),
   })
   .openapi("OrgTeardownResponse");
 
@@ -399,7 +399,7 @@ registry.registerPath({
   method: "delete",
   path: "/internal/orgs/by-external/{externalOrgId}",
   summary:
-    "Cascade-teardown an org by its Clerk org id (external_id). Resolves external_id -> internal UUID read-only (404 if unknown, never creates)",
+    "Cascade-teardown an org by its external Clerk org id (resolves external_id -> internal UUID read-only, 404 if unknown)",
   security: [{ ApiKeyAuth: [] }],
   request: {
     params: OrgTeardownByExternalParamsSchema,
@@ -418,7 +418,7 @@ registry.registerPath({
       content: { "application/json": { schema: ErrorResponseSchema } },
     },
     404: {
-      description: "No org found for the given Clerk org id (nothing created)",
+      description: "No org found for the given external id (nothing created)",
       content: { "application/json": { schema: ErrorResponseSchema } },
     },
     502: {

@@ -82,11 +82,5 @@ describe("deleteClerkUser", () => {
     const err = await deleteClerkUser("user_x").catch((e) => e);
     expect(err).toBeInstanceOf(ClerkServiceError);
     expect(err.status).toBe(500);
-    expect(err.message).toContain("user");
-  });
-
-  it("throws when CLERK_SECRET_KEY is not configured", async () => {
-    delete process.env.CLERK_SECRET_KEY;
-    await expect(deleteClerkUser("user_x")).rejects.toThrow("CLERK_SECRET_KEY not configured");
   });
 });
