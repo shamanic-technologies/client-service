@@ -71,3 +71,19 @@ export async function deleteClerkOrganization(clerkOrgId: string): Promise<Clerk
     throw new ClerkServiceError(errorStatus(err), errorBody(err));
   }
 }
+
+/**
+ * Delete a Clerk user online, keyed by its Clerk user id.
+ * Idempotent: a 404 (already-deleted) resolves to "not_found", not an error.
+ * Any other failure throws ClerkServiceError (fail loud).
+ */
+export async function deleteClerkUser(clerkUserId: string): Promise<ClerkDeleteResult> {
+  const clerk = getClerkClient();
+  try {
+    await clerk.users.deleteUser(clerkUserId);
+    return "deleted";
+  } catch (err: unknown) {
+    if (isNotFound(err)) return "not_found";
+    throw new ClerkServiceError(errorStatus(err), errorBody(err));
+  }
+}

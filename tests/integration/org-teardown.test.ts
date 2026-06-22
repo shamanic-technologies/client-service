@@ -5,7 +5,7 @@ import { createTestApp } from "../helpers/test-app.js";
 import { cleanTestData, insertTestOrg, insertTestUser, closeDb, randomId } from "../helpers/test-db.js";
 import { db } from "../../src/db/index.js";
 import { orgs, users, invites } from "../../src/db/schema.js";
-import { deleteClerkOrganization, ClerkServiceError } from "../../src/lib/clerk-client.js";
+import { deleteClerkOrganization, deleteClerkUser, ClerkServiceError } from "../../src/lib/clerk-client.js";
 import { deleteStripeCustomerByOrg, StripeServiceError } from "../../src/lib/stripe-service-client.js";
 import {
   deleteBillingByOrg,
@@ -19,7 +19,7 @@ import {
 // for the route's instanceof checks). The DB cascade runs against the real test DB.
 vi.mock("../../src/lib/clerk-client.js", async (importActual) => {
   const actual = await importActual<typeof import("../../src/lib/clerk-client.js")>();
-  return { ...actual, deleteClerkOrganization: vi.fn() };
+  return { ...actual, deleteClerkOrganization: vi.fn(), deleteClerkUser: vi.fn() };
 });
 vi.mock("../../src/lib/stripe-service-client.js", async (importActual) => {
   const actual = await importActual<typeof import("../../src/lib/stripe-service-client.js")>();
@@ -49,6 +49,7 @@ describe("DELETE /internal/orgs/:orgId (cascade teardown)", () => {
     vi.mocked(deleteKeysByOrg).mockReset().mockResolvedValue("deleted");
     vi.mocked(deleteStripeCustomerByOrg).mockReset().mockResolvedValue("deleted");
     vi.mocked(deleteClerkOrganization).mockReset().mockResolvedValue("deleted");
+    vi.mocked(deleteClerkUser).mockReset().mockResolvedValue("deleted");
   });
 
   afterAll(async () => {
@@ -83,7 +84,13 @@ describe("DELETE /internal/orgs/:orgId (cascade teardown)", () => {
       key: "deleted",
       stripe: "deleted",
       clerk: "deleted",
+      clerkUsers: { deleted: 2, notFound: 0 },
     });
+
+    // Both Clerk users deleted online, keyed by their Clerk user id
+    expect(vi.mocked(deleteClerkUser)).toHaveBeenCalledWith("u1");
+    expect(vi.mocked(deleteClerkUser)).toHaveBeenCalledWith("u2");
+    expect(vi.mocked(deleteClerkUser)).toHaveBeenCalledTimes(2);
 
     // Rows actually gone
     const remainingOrg = await db.select().from(orgs).where(eq(orgs.id, org.id));
@@ -193,6 +200,41 @@ describe("DELETE /internal/orgs/:orgId (cascade teardown)", () => {
     // Clerk is step 2 (before DB) — org row preserved for retry
     const remainingOrg = await db.select().from(orgs).where(eq(orgs.id, org.id));
     expect(remainingOrg).toHaveLength(1);
+  });
+
+  it("fails loud (502) when a Clerk user delete errors — does NOT delete client-service data", async () => {
+    const org = await insertTestOrg({ externalId: "org_clerk_user_fail" });
+    await insertTestUser({ externalId: "u-cuf", orgId: org.id });
+    vi.mocked(deleteClerkUser).mockRejectedValueOnce(new ClerkServiceError(500, "clerk user boom"));
+
+    const res = await request(app)
+      .delete(`/internal/orgs/${org.id}`)
+      .set("x-api-key", API_KEY);
+
+    expect(res.status).toBe(502);
+    expect(res.body.provider).toBe("clerk");
+    expect(res.body.upstreamStatus).toBe(500);
+
+    // Clerk-user delete runs before the local DB delete — org + user rows preserved for retry
+    const remainingOrg = await db.select().from(orgs).where(eq(orgs.id, org.id));
+    const remainingUsers = await db.select().from(users).where(eq(users.orgId, org.id));
+    expect(remainingOrg).toHaveLength(1);
+    expect(remainingUsers).toHaveLength(1);
+  });
+
+  it("counts Clerk 404 users as notFound and still cascades the DB delete", async () => {
+    const org = await insertTestOrg({ externalId: "org_clerk_user_404" });
+    await insertTestUser({ externalId: "u-gone", orgId: org.id });
+    vi.mocked(deleteClerkUser).mockResolvedValueOnce("not_found");
+
+    const res = await request(app)
+      .delete(`/internal/orgs/${org.id}`)
+      .set("x-api-key", API_KEY);
+
+    expect(res.status).toBe(200);
+    expect(res.body.clerkUsers).toEqual({ deleted: 0, notFound: 1 });
+    const remainingUsers = await db.select().from(users).where(eq(users.orgId, org.id));
+    expect(remainingUsers).toHaveLength(0);
   });
 
   it("treats Clerk 404 as not_found and still cascades the DB delete", async () => {
