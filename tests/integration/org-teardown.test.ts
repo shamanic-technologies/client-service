@@ -5,7 +5,7 @@ import { createTestApp } from "../helpers/test-app.js";
 import { cleanTestData, insertTestOrg, insertTestUser, closeDb, randomId } from "../helpers/test-db.js";
 import { db } from "../../src/db/index.js";
 import { orgs, users, invites } from "../../src/db/schema.js";
-import { deleteClerkOrganization, ClerkServiceError } from "../../src/lib/clerk-client.js";
+import { deleteClerkOrganization, deleteClerkUser, ClerkServiceError } from "../../src/lib/clerk-client.js";
 import { deleteStripeCustomerByOrg, StripeServiceError } from "../../src/lib/stripe-service-client.js";
 import {
   deleteBillingByOrg,
@@ -19,7 +19,7 @@ import {
 // for the route's instanceof checks). The DB cascade runs against the real test DB.
 vi.mock("../../src/lib/clerk-client.js", async (importActual) => {
   const actual = await importActual<typeof import("../../src/lib/clerk-client.js")>();
-  return { ...actual, deleteClerkOrganization: vi.fn() };
+  return { ...actual, deleteClerkOrganization: vi.fn(), deleteClerkUser: vi.fn() };
 });
 vi.mock("../../src/lib/stripe-service-client.js", async (importActual) => {
   const actual = await importActual<typeof import("../../src/lib/stripe-service-client.js")>();
@@ -49,11 +49,11 @@ describe("DELETE /internal/orgs/:orgId (cascade teardown)", () => {
     vi.mocked(deleteKeysByOrg).mockReset().mockResolvedValue("deleted");
     vi.mocked(deleteStripeCustomerByOrg).mockReset().mockResolvedValue("deleted");
     vi.mocked(deleteClerkOrganization).mockReset().mockResolvedValue("deleted");
+    vi.mocked(deleteClerkUser).mockReset().mockResolvedValue("deleted");
   });
 
   afterAll(async () => {
     await cleanTestData();
-    await closeDb();
   });
 
   it("tears down client-service data + Clerk + Stripe, returns JSON result", async () => {
@@ -83,7 +83,18 @@ describe("DELETE /internal/orgs/:orgId (cascade teardown)", () => {
       key: "deleted",
       stripe: "deleted",
       clerk: "deleted",
+      clerkUsers: 2,
     });
+
+    // Each org user deleted from Clerk by its external_id, before the Clerk org.
+    expect(vi.mocked(deleteClerkUser)).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(deleteClerkUser)).toHaveBeenCalledWith("u1");
+    expect(vi.mocked(deleteClerkUser)).toHaveBeenCalledWith("u2");
+    const lastUserDeleteOrder = Math.max(
+      ...vi.mocked(deleteClerkUser).mock.invocationCallOrder,
+    );
+    const orgDeleteOrder = vi.mocked(deleteClerkOrganization).mock.invocationCallOrder[0];
+    expect(lastUserDeleteOrder).toBeLessThan(orgDeleteOrder);
 
     // Rows actually gone
     const remainingOrg = await db.select().from(orgs).where(eq(orgs.id, org.id));
@@ -252,4 +263,137 @@ describe("DELETE /internal/orgs/:orgId (cascade teardown)", () => {
     const res = await request(app).delete(`/internal/orgs/${randomId()}`);
     expect(res.status).toBe(401);
   });
+
+  it("counts only Clerk users that were actually deleted (already-gone => not counted)", async () => {
+    const org = await insertTestOrg({ externalId: "org_users_gone" });
+    await insertTestUser({ externalId: "u-gone-1", orgId: org.id });
+    await insertTestUser({ externalId: "u-gone-2", orgId: org.id });
+    vi.mocked(deleteClerkUser).mockReset().mockResolvedValue("not_found");
+
+    const res = await request(app)
+      .delete(`/internal/orgs/${org.id}`)
+      .set("x-api-key", API_KEY);
+
+    expect(res.status).toBe(200);
+    expect(vi.mocked(deleteClerkUser)).toHaveBeenCalledTimes(2);
+    expect(res.body.clerkUsers).toBe(0);
+  });
+
+  it("skips users with no external_id (no Clerk delete attempted)", async () => {
+    const org = await insertTestOrg({ externalId: "org_null_ext_user" });
+    await db.insert(users).values({ externalId: null, orgId: org.id });
+
+    const res = await request(app)
+      .delete(`/internal/orgs/${org.id}`)
+      .set("x-api-key", API_KEY);
+
+    expect(res.status).toBe(200);
+    expect(res.body.clerkUsers).toBe(0);
+    expect(vi.mocked(deleteClerkUser)).not.toHaveBeenCalled();
+  });
+
+  it("fails loud (502) when a Clerk user delete errors — does NOT delete client-service data", async () => {
+    const org = await insertTestOrg({ externalId: "org_user_clerk_fail" });
+    await insertTestUser({ externalId: "u-cf", orgId: org.id });
+    vi.mocked(deleteClerkUser).mockReset().mockRejectedValueOnce(new ClerkServiceError(500, "clerk user boom", "user"));
+
+    const res = await request(app)
+      .delete(`/internal/orgs/${org.id}`)
+      .set("x-api-key", API_KEY);
+
+    expect(res.status).toBe(502);
+    expect(res.body.provider).toBe("clerk");
+    // User delete runs before the org delete + DB delete — org row preserved for retry
+    expect(vi.mocked(deleteClerkOrganization)).not.toHaveBeenCalled();
+    const remainingOrg = await db.select().from(orgs).where(eq(orgs.id, org.id));
+    expect(remainingOrg).toHaveLength(1);
+  });
+});
+
+describe("DELETE /internal/orgs/by-external/:externalOrgId (teardown by Clerk org id)", () => {
+  const app = createTestApp();
+
+  beforeEach(async () => {
+    await cleanTestData();
+    vi.mocked(deleteBillingByOrg).mockReset().mockResolvedValue("deleted");
+    vi.mocked(deleteCampaignsByOrg).mockReset().mockResolvedValue("deleted");
+    vi.mocked(deleteRunsByOrg).mockReset().mockResolvedValue("deleted");
+    vi.mocked(deleteKeysByOrg).mockReset().mockResolvedValue("deleted");
+    vi.mocked(deleteStripeCustomerByOrg).mockReset().mockResolvedValue("deleted");
+    vi.mocked(deleteClerkOrganization).mockReset().mockResolvedValue("deleted");
+    vi.mocked(deleteClerkUser).mockReset().mockResolvedValue("deleted");
+  });
+
+  afterAll(async () => {
+    await cleanTestData();
+  });
+
+  it("resolves external_id -> internal UUID and runs the full cascade", async () => {
+    const org = await insertTestOrg({ externalId: "org_ext_teardown", name: "ByExternal Co" });
+    await insertTestUser({ externalId: "ux1", email: "x@t.com", orgId: org.id });
+    await insertTestUser({ externalId: "ux2", email: "y@t.com", orgId: org.id });
+
+    const res = await request(app)
+      .delete(`/internal/orgs/by-external/org_ext_teardown`)
+      .set("x-api-key", API_KEY);
+
+    expect(res.status).toBe(200);
+    expect(res.body.orgId).toBe(org.id);
+    expect(res.body.clientService).toEqual({ orgs: 1, users: 2, invites: 0 });
+    expect(res.body.clerkUsers).toBe(2);
+    // Producers keyed on the resolved internal UUID
+    expect(vi.mocked(deleteBillingByOrg)).toHaveBeenCalledWith(org.id);
+    expect(vi.mocked(deleteClerkOrganization)).toHaveBeenCalledWith("org_ext_teardown");
+    expect(vi.mocked(deleteClerkUser)).toHaveBeenCalledWith("ux1");
+    expect(vi.mocked(deleteClerkUser)).toHaveBeenCalledWith("ux2");
+
+    const remainingOrg = await db.select().from(orgs).where(eq(orgs.id, org.id));
+    expect(remainingOrg).toHaveLength(0);
+  });
+
+  it("returns 404 for an unknown Clerk org id and creates nothing (no upsert)", async () => {
+    const orgsBefore = await db.select().from(orgs);
+    const usersBefore = await db.select().from(users);
+
+    const res = await request(app)
+      .delete(`/internal/orgs/by-external/org_does_not_exist`)
+      .set("x-api-key", API_KEY);
+
+    expect(res.status).toBe(404);
+    // No producer / provider calls, nothing created
+    expect(vi.mocked(deleteBillingByOrg)).not.toHaveBeenCalled();
+    expect(vi.mocked(deleteClerkOrganization)).not.toHaveBeenCalled();
+    expect(vi.mocked(deleteClerkUser)).not.toHaveBeenCalled();
+    const orgsAfter = await db.select().from(orgs);
+    const usersAfter = await db.select().from(users);
+    expect(orgsAfter).toHaveLength(orgsBefore.length);
+    expect(usersAfter).toHaveLength(usersBefore.length);
+  });
+
+  it("is idempotent: a re-run after teardown returns 404 (org row already gone, nothing created)", async () => {
+    const org = await insertTestOrg({ externalId: "org_ext_idem" });
+    await insertTestUser({ externalId: "ui", orgId: org.id });
+
+    const first = await request(app)
+      .delete(`/internal/orgs/by-external/org_ext_idem`)
+      .set("x-api-key", API_KEY);
+    expect(first.status).toBe(200);
+
+    const second = await request(app)
+      .delete(`/internal/orgs/by-external/org_ext_idem`)
+      .set("x-api-key", API_KEY);
+    expect(second.status).toBe(404);
+
+    const orgsAfter = await db.select().from(orgs).where(eq(orgs.externalId, "org_ext_idem"));
+    expect(orgsAfter).toHaveLength(0);
+  });
+
+  it("returns 400 for an empty externalOrgId-style bad route and 401 without an API key", async () => {
+    const noKey = await request(app).delete(`/internal/orgs/by-external/org_x`);
+    expect(noKey.status).toBe(401);
+  });
+});
+
+afterAll(async () => {
+  await closeDb();
 });

@@ -212,6 +212,9 @@
               "deleted",
               "not_found"
             ]
+          },
+          "clerkUsers": {
+            "type": "integer"
           }
         },
         "required": [
@@ -222,7 +225,8 @@
           "runs",
           "key",
           "stripe",
-          "clerk"
+          "clerk",
+          "clerkUsers"
         ]
       },
       "UpstreamErrorResponse": {
@@ -808,6 +812,89 @@
           },
           "401": {
             "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Upstream producer/provider (billing, campaign, runs, key, stripe-service, or Clerk) failed — fail loud, no partial success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpstreamErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/internal/orgs/by-external/{externalOrgId}": {
+      "delete": {
+        "summary": "Cascade-teardown an org by its Clerk org id (external_id). Resolves external_id -> internal UUID read-only (404 if unknown, never creates)",
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": true,
+            "name": "externalOrgId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Teardown result (idempotent: re-run reports zero rows)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrgTeardownResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid externalOrgId",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No org found for the given Clerk org id (nothing created)",
             "content": {
               "application/json": {
                 "schema": {

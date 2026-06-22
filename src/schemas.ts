@@ -119,6 +119,12 @@ export const OrgTeardownParamsSchema = z
   })
   .openapi("OrgTeardownParams");
 
+export const OrgTeardownByExternalParamsSchema = z
+  .object({
+    externalOrgId: z.string().min(1),
+  })
+  .openapi("OrgTeardownByExternalParams");
+
 const OrgTeardownResponseSchema = z
   .object({
     orgId: z.string().uuid(),
@@ -133,6 +139,10 @@ const OrgTeardownResponseSchema = z
     key: z.literal("deleted"),
     stripe: z.literal("deleted"),
     clerk: z.enum(["deleted", "not_found"]),
+    // Count of the org's Clerk user accounts deleted online (frees their emails
+    // for reuse). Counts only deletes that returned "deleted"; already-gone users
+    // (Clerk 404) are not counted, so a re-run reports 0.
+    clerkUsers: z.number().int(),
   })
   .openapi("OrgTeardownResponse");
 
@@ -371,6 +381,44 @@ registry.registerPath({
     },
     401: {
       description: "Unauthorized",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+    502: {
+      description:
+        "Upstream producer/provider (billing, campaign, runs, key, stripe-service, or Clerk) failed — fail loud, no partial success",
+      content: { "application/json": { schema: UpstreamErrorResponseSchema } },
+    },
+    500: {
+      description: "Internal server error",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+  },
+});
+
+registry.registerPath({
+  method: "delete",
+  path: "/internal/orgs/by-external/{externalOrgId}",
+  summary:
+    "Cascade-teardown an org by its Clerk org id (external_id). Resolves external_id -> internal UUID read-only (404 if unknown, never creates)",
+  security: [{ ApiKeyAuth: [] }],
+  request: {
+    params: OrgTeardownByExternalParamsSchema,
+  },
+  responses: {
+    200: {
+      description: "Teardown result (idempotent: re-run reports zero rows)",
+      content: { "application/json": { schema: OrgTeardownResponseSchema } },
+    },
+    400: {
+      description: "Invalid externalOrgId",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+    401: {
+      description: "Unauthorized",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+    404: {
+      description: "No org found for the given Clerk org id (nothing created)",
       content: { "application/json": { schema: ErrorResponseSchema } },
     },
     502: {
