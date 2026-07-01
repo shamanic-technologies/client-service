@@ -4,6 +4,7 @@ import { db } from "../db/index.js";
 import { users, orgs, invites } from "../db/schema.js";
 import { requireApiKey } from "../middleware/auth.js";
 import {
+  OrgGetParamsSchema,
   OrgMemberCheckParamsSchema,
   OrgTeardownParamsSchema,
   OrgTeardownByExternalParamsSchema,
@@ -158,6 +159,34 @@ function handleTeardownError(error: unknown, res: Response) {
     error: error instanceof Error ? error.message : "Org teardown failed",
   });
 }
+
+/**
+ * GET /internal/orgs/:orgId - Fetch an org record by its internal UUID.
+ *
+ * `:orgId` is the internal client-service org UUID (the platform `x-org-id`).
+ * Returns the org's `id`, `external_id` (the Clerk org id, e.g. "org_..."), and
+ * `name`. Both `externalId` and `name` are null when null in the row. Used by
+ * service-to-service callers that hold the internal UUID and need to resolve it
+ * to the Clerk org id or the org's display name. 404 when no row matches.
+ */
+router.get("/internal/orgs/:orgId", requireApiKey, async (req, res) => {
+  const parsed = OrgGetParamsSchema.safeParse(req.params);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid parameters", details: parsed.error.flatten() });
+  }
+
+  const [org] = await db
+    .select({ id: orgs.id, externalId: orgs.externalId, name: orgs.name })
+    .from(orgs)
+    .where(eq(orgs.id, parsed.data.orgId))
+    .limit(1);
+
+  if (!org) {
+    return res.status(404).json({ error: "Org not found" });
+  }
+
+  return res.status(200).json(org);
+});
 
 /**
  * GET /internal/orgs/:orgId/members/:userId - Check if a user is a member of an org
