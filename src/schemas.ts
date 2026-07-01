@@ -111,6 +111,22 @@ export const OrgMemberCheckParamsSchema = z
   })
   .openapi("OrgMemberCheckParams");
 
+// --- Org Get ---
+
+export const OrgGetParamsSchema = z
+  .object({
+    orgId: z.string().uuid(),
+  })
+  .openapi("OrgGetParams");
+
+const OrgRecordResponseSchema = z
+  .object({
+    id: z.string().uuid(),
+    externalId: z.string().nullable(),
+    name: z.string().nullable(),
+  })
+  .openapi("OrgRecordResponse");
+
 // --- Org Teardown ---
 
 export const OrgTeardownParamsSchema = z
@@ -322,6 +338,38 @@ registry.registerPath({
     },
     401: {
       description: "Unauthorized",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+    500: {
+      description: "Internal server error",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+  },
+});
+
+registry.registerPath({
+  method: "get",
+  path: "/internal/orgs/{orgId}",
+  summary: "Get an org record (id, external Clerk org id, name) by internal UUID",
+  security: [{ ApiKeyAuth: [] }],
+  request: {
+    params: OrgGetParamsSchema,
+  },
+  responses: {
+    200: {
+      description: "Org found",
+      content: { "application/json": { schema: OrgRecordResponseSchema } },
+    },
+    400: {
+      description: "Invalid orgId",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+    401: {
+      description: "Unauthorized",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+    404: {
+      description: "Org not found",
       content: { "application/json": { schema: ErrorResponseSchema } },
     },
     500: {
