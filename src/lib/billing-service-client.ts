@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 /**
  * Error thrown when billing-service returns a non-2xx creating/reading an org's
  * billing account. Carries the upstream HTTP status + body so the caller can
@@ -39,6 +41,10 @@ export async function ensureBillingWelcome(orgId: string, userId: string): Promi
   const headers: Record<string, string> = {
     "x-org-id": orgId,
     "x-user-id": userId,
+    // billing's /v1/accounts requires x-run-id for run/cost tracking. This
+    // channel-provisioning path has no inbound request run, so mint one (billing
+    // treats run-id as a tracking value, not a validated FK).
+    "x-run-id": randomUUID(),
   };
   // Send the service api-key too when configured (belt-and-suspenders for any
   // gateway-level auth); the route itself gates on the org/user headers.
