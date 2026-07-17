@@ -10,6 +10,7 @@ import { migrate } from "drizzle-orm/postgres-js/migrator";
 import { db } from "./db/index.js";
 import healthRoutes from "./routes/health.js";
 import resolveRoutes from "./routes/resolve.js";
+import phoneAccountsRoutes from "./routes/phone-accounts.js";
 import usersRoutes from "./routes/users.js";
 import orgsRoutes from "./routes/orgs.js";
 import statsRoutes from "./routes/stats.js";
@@ -48,6 +49,7 @@ app.get("/openapi.json", (_req, res) => {
 // Routes
 app.use(healthRoutes);
 app.use(resolveRoutes);
+app.use(phoneAccountsRoutes);
 app.use(usersRoutes);
 app.use(orgsRoutes);
 app.use(statsRoutes);

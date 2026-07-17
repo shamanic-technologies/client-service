@@ -49,6 +49,36 @@ const ResolveResponseSchema = z
   })
   .openapi("ResolveResponse");
 
+// --- Phone Accounts (channel-origin signup) ---
+
+// E.164: leading '+', country digit 1-9, then up to 14 more digits.
+const E164Phone = z
+  .string()
+  .regex(/^\+[1-9]\d{6,14}$/, "phone must be E.164 format, e.g. +15551234567");
+
+export const ProvisionPhoneAccountBodySchema = z
+  .object({
+    phone: E164Phone,
+  })
+  .openapi("ProvisionPhoneAccountBody");
+
+export const ResolvePhoneAccountQuerySchema = z
+  .object({
+    phone: E164Phone,
+  })
+  .openapi("ResolvePhoneAccountQuery");
+
+const PhoneAccountResponseSchema = z
+  .object({
+    orgId: z.string().uuid(),
+    userId: z.string().uuid(),
+    phone: z.string(),
+    clerkOrgId: z.string(),
+    clerkUserId: z.string(),
+    created: z.boolean(),
+  })
+  .openapi("PhoneAccountResponse");
+
 // --- Get User by ID ---
 
 export const GetUserParamsSchema = z
@@ -523,6 +553,77 @@ registry.registerPath({
     },
     401: {
       description: "Unauthorized",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+    500: {
+      description: "Internal server error",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+  },
+});
+
+registry.registerPath({
+  method: "post",
+  path: "/internal/phone-accounts",
+  summary:
+    "Provision (or return) a full signup-equivalent account for a phone number — idempotent per phone",
+  description:
+    "Turns an unauthenticated phone number into a first-class platform account: creates a Clerk user (phone identifier) + Clerk organization, maps them to internal UUIDs, and triggers billing-service's welcome path (welcome credit + Stripe customer). Idempotent per phone: a repeat call returns the existing identity with created=false and no side effects. The account is claimable later on the dashboard via SMS OTP to the same number.",
+  security: [{ ApiKeyAuth: [] }],
+  request: {
+    body: {
+      content: { "application/json": { schema: ProvisionPhoneAccountBodySchema } },
+    },
+  },
+  responses: {
+    200: {
+      description: "Account resolved (created=false) or newly provisioned (created=true)",
+      content: { "application/json": { schema: PhoneAccountResponseSchema } },
+    },
+    400: {
+      description: "Invalid phone (not E.164)",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+    401: {
+      description: "Unauthorized",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+    502: {
+      description: "Upstream provider (Clerk or billing-service) failed — fail loud, no partial account",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+    500: {
+      description: "Internal server error",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+  },
+});
+
+registry.registerPath({
+  method: "get",
+  path: "/internal/phone-accounts",
+  summary: "Resolve a KNOWN phone number to its account identity (never creates)",
+  description:
+    "Read-only lookup: resolves a phone number to its existing org/user identity. 404 when no account exists for the phone (use POST to provision).",
+  security: [{ ApiKeyAuth: [] }],
+  request: {
+    query: ResolvePhoneAccountQuerySchema,
+  },
+  responses: {
+    200: {
+      description: "Account identity for the phone (created=false)",
+      content: { "application/json": { schema: PhoneAccountResponseSchema } },
+    },
+    400: {
+      description: "Invalid or missing phone (not E.164)",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+    401: {
+      description: "Unauthorized",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+    404: {
+      description: "No account exists for the phone number",
       content: { "application/json": { schema: ErrorResponseSchema } },
     },
     500: {
