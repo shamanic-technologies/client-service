@@ -62,18 +62,48 @@ export interface ClerkPhoneAccount {
 }
 
 /**
+ * Domain for the synthetic placeholder email a phone-origin Clerk user is keyed
+ * on. Overridable via env; the default is a subdomain we control so the address
+ * never collides with a real person's inbox. Never receives mail — the user is
+ * admin-created (Clerk marks the address verified without sending anything).
+ */
+function phoneAccountEmailDomain(): string {
+  return process.env.PHONE_ACCOUNT_EMAIL_DOMAIN || "phone.distribute.you";
+}
+
+/**
+ * Deterministic synthetic email for a phone-origin account: `wa-<e164digits>@<domain>`.
+ * Deterministic (not random) so a retry after a half-completed provision reuses
+ * the same address rather than orphaning a second Clerk user.
+ */
+export function syntheticPhoneEmail(phone: string): string {
+  const digits = phone.replace(/\D/g, "");
+  return `wa-${digits}@${phoneAccountEmailDomain()}`;
+}
+
+/**
  * Create a signup-equivalent Clerk identity for a phone number: a Clerk user
- * that carries the phone as a sign-in identifier, plus a Clerk organization the
- * user administers (createdBy). This mirrors what a dashboard signup produces
- * (user + personal org), so the resulting account behaves identically downstream.
+ * keyed on a synthetic placeholder EMAIL (NOT the phone), plus a Clerk
+ * organization the user administers (createdBy). This mirrors what a dashboard
+ * signup produces (user + personal org), so the resulting account behaves
+ * identically downstream.
  *
- * Claimability: the phone is a real Clerk identifier, so the same person can
- * later sign in on the dashboard via SMS OTP to this number (Clerk verifies the
- * number at OTP time) and land on the SAME Clerk user + org — then add an
- * email/OAuth identity or a payment card. The account is never a dead end.
+ * Why not the phone: Clerk's phone identifier is globally restricted — many
+ * countries (France/+33 confirmed) are unsupported for phone identifiers, and it
+ * also requires a per-instance setting. Keying on the phone 502s on the first
+ * message from those countries. An admin-created email is accepted for ANY
+ * country's user with no instance toggle, so it is the reliable identifier.
  *
- * The Clerk user is created WITHOUT a password (skipPasswordRequirement) since
- * phone-OTP is the sign-in path; a password can be added later on claim.
+ * The phone itself is NOT a Clerk sign-in identifier here; it is persisted on
+ * this service's own user row by the caller as the channel's mapping key.
+ *
+ * Claimability: the account is not a dead end. The same person later claims it
+ * on the dashboard by linking their real email / OAuth identity to this Clerk
+ * user (the caller resolves phone -> clerkUserId from our DB), then can add a
+ * payment card. The synthetic email is a placeholder, freely superseded on claim.
+ *
+ * The Clerk user is created WITHOUT a password (skipPasswordRequirement); a
+ * password / real identity is added later on claim.
  *
  * Fail loud: any Clerk failure throws ClerkServiceError. If the user was created
  * but the org creation failed, the orphan user is best-effort deleted before the
@@ -88,7 +118,7 @@ export async function createClerkPhoneAccount(
   let clerkUserId: string | undefined;
   try {
     const user = await clerk.users.createUser({
-      phoneNumber: [phone],
+      emailAddress: [syntheticPhoneEmail(phone)],
       skipPasswordRequirement: true,
     });
     clerkUserId = user.id;

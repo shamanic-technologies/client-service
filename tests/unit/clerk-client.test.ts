@@ -18,6 +18,7 @@ import {
   deleteClerkOrganization,
   deleteClerkUser,
   createClerkPhoneAccount,
+  syntheticPhoneEmail,
   ClerkServiceError,
 } from "../../src/lib/clerk-client.js";
 
@@ -106,21 +107,54 @@ describe("createClerkPhoneAccount", () => {
     process.env.CLERK_SECRET_KEY = savedKey;
   });
 
-  it("creates a phone user (no password) + an org they administer", async () => {
+  it("creates a user keyed on a synthetic email (NOT the phone), no password, + an org they administer", async () => {
     createUserMock.mockResolvedValueOnce({ id: "user_ph" });
     createOrgMock.mockResolvedValueOnce({ id: "org_ph" });
 
     const result = await createClerkPhoneAccount("+15551234567", "WhatsApp +15551234567");
 
     expect(result).toEqual({ clerkUserId: "user_ph", clerkOrgId: "org_ph" });
+    // The phone must NOT be a Clerk sign-in identifier (globally restricted).
     expect(createUserMock).toHaveBeenCalledWith({
-      phoneNumber: ["+15551234567"],
+      emailAddress: ["wa-15551234567@phone.distribute.you"],
       skipPasswordRequirement: true,
     });
+    const createArgs = createUserMock.mock.calls[0][0];
+    expect(createArgs).not.toHaveProperty("phoneNumber");
     expect(createOrgMock).toHaveBeenCalledWith({
       name: "WhatsApp +15551234567",
       createdBy: "user_ph",
     });
+  });
+
+  it("succeeds for a +33 France phone (unsupported as a Clerk phone identifier)", async () => {
+    createUserMock.mockResolvedValueOnce({ id: "user_fr" });
+    createOrgMock.mockResolvedValueOnce({ id: "org_fr" });
+
+    const result = await createClerkPhoneAccount("+33612345678", "WhatsApp +33612345678");
+
+    expect(result).toEqual({ clerkUserId: "user_fr", clerkOrgId: "org_fr" });
+    expect(createUserMock).toHaveBeenCalledWith({
+      emailAddress: ["wa-33612345678@phone.distribute.you"],
+      skipPasswordRequirement: true,
+    });
+    expect(createUserMock.mock.calls[0][0]).not.toHaveProperty("phoneNumber");
+  });
+
+  it("derives a deterministic synthetic email from the phone digits", () => {
+    expect(syntheticPhoneEmail("+33612345678")).toBe("wa-33612345678@phone.distribute.you");
+    expect(syntheticPhoneEmail("+15551234567")).toBe("wa-15551234567@phone.distribute.you");
+  });
+
+  it("honors PHONE_ACCOUNT_EMAIL_DOMAIN override", () => {
+    const saved = process.env.PHONE_ACCOUNT_EMAIL_DOMAIN;
+    process.env.PHONE_ACCOUNT_EMAIL_DOMAIN = "wa.example.test";
+    try {
+      expect(syntheticPhoneEmail("+33612345678")).toBe("wa-33612345678@wa.example.test");
+    } finally {
+      if (saved === undefined) delete process.env.PHONE_ACCOUNT_EMAIL_DOMAIN;
+      else process.env.PHONE_ACCOUNT_EMAIL_DOMAIN = saved;
+    }
   });
 
   it("cleans up the orphan user + fails loud when org creation fails", async () => {
