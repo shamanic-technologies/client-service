@@ -568,7 +568,7 @@ registry.registerPath({
   summary:
     "Provision (or return) a full signup-equivalent account for a phone number — idempotent per phone",
   description:
-    "Turns an unauthenticated phone number into a first-class platform account: creates a Clerk user (phone identifier) + Clerk organization, maps them to internal UUIDs, and triggers billing-service's welcome path (welcome credit + Stripe customer). Idempotent per phone: a repeat call returns the existing identity with created=false and no side effects. The account is claimable later on the dashboard via SMS OTP to the same number.",
+    "Turns an unauthenticated phone number into a first-class platform account: creates a Clerk user keyed on a synthetic placeholder email (NOT the phone — Clerk's phone identifier is globally country-restricted, e.g. France/+33) + Clerk organization, maps them to internal UUIDs, persists the phone as the channel's mapping key, and triggers billing-service's welcome path (welcome credit + Stripe customer). Works for any country's phone. Idempotent per phone: a repeat call returns the existing identity with created=false and no side effects. Claimable later on the dashboard by linking the person's real email/OAuth to the same Clerk user.",
   security: [{ ApiKeyAuth: [] }],
   request: {
     body: {
