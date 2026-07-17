@@ -398,6 +398,51 @@
           "externalUserId"
         ]
       },
+      "PhoneAccountResponse": {
+        "type": "object",
+        "properties": {
+          "orgId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "userId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "phone": {
+            "type": "string"
+          },
+          "clerkOrgId": {
+            "type": "string"
+          },
+          "clerkUserId": {
+            "type": "string"
+          },
+          "created": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "orgId",
+          "userId",
+          "phone",
+          "clerkOrgId",
+          "clerkUserId",
+          "created"
+        ]
+      },
+      "ProvisionPhoneAccountBody": {
+        "type": "object",
+        "properties": {
+          "phone": {
+            "type": "string",
+            "pattern": "^\\+[1-9]\\d{6,14}$"
+          }
+        },
+        "required": [
+          "phone"
+        ]
+      },
       "ValidateInviteResponse": {
         "type": "object",
         "properties": {
@@ -1113,6 +1158,150 @@
           },
           "401": {
             "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/internal/phone-accounts": {
+      "post": {
+        "summary": "Provision (or return) a full signup-equivalent account for a phone number — idempotent per phone",
+        "description": "Turns an unauthenticated phone number into a first-class platform account: creates a Clerk user (phone identifier) + Clerk organization, maps them to internal UUIDs, and triggers billing-service's welcome path (welcome credit + Stripe customer). Idempotent per phone: a repeat call returns the existing identity with created=false and no side effects. The account is claimable later on the dashboard via SMS OTP to the same number.",
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProvisionPhoneAccountBody"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Account resolved (created=false) or newly provisioned (created=true)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PhoneAccountResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid phone (not E.164)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Upstream provider (Clerk or billing-service) failed — fail loud, no partial account",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "summary": "Resolve a KNOWN phone number to its account identity (never creates)",
+        "description": "Read-only lookup: resolves a phone number to its existing org/user identity. 404 when no account exists for the phone (use POST to provision).",
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^\\+[1-9]\\d{6,14}$"
+            },
+            "required": true,
+            "name": "phone",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Account identity for the phone (created=false)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PhoneAccountResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid or missing phone (not E.164)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No account exists for the phone number",
             "content": {
               "application/json": {
                 "schema": {

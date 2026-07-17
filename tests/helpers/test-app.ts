@@ -2,6 +2,7 @@ import express from "express";
 import cors from "cors";
 import healthRoutes from "../../src/routes/health.js";
 import resolveRoutes from "../../src/routes/resolve.js";
+import phoneAccountsRoutes from "../../src/routes/phone-accounts.js";
 import usersRoutes from "../../src/routes/users.js";
 import orgsRoutes from "../../src/routes/orgs.js";
 import statsRoutes from "../../src/routes/stats.js";
@@ -19,6 +20,7 @@ export function createTestApp() {
 
   app.use(healthRoutes);
   app.use(resolveRoutes);
+  app.use(phoneAccountsRoutes);
   app.use(usersRoutes);
   app.use(orgsRoutes);
   app.use(statsRoutes);

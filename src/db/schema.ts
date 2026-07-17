@@ -35,6 +35,10 @@ export const users = pgTable(
   },
   (table) => [
     uniqueIndex("idx_users_external_id").on(table.externalId),
+    // One account per phone number (channel-origin signups). Postgres treats
+    // NULLs as distinct, so the many existing users with NULL phone are
+    // unaffected; uniqueness is enforced only across non-null phone values.
+    uniqueIndex("idx_users_phone").on(table.phone),
   ]
 );
 
