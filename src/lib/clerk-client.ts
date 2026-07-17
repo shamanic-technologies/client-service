@@ -10,7 +10,7 @@ export class ClerkServiceError extends Error {
     public readonly status: number,
     public readonly body: string,
   ) {
-    super(`[client-service] Clerk org delete failed (${status}): ${body}`);
+    super(`[client-service] Clerk operation failed (${status}): ${body}`);
     this.name = "ClerkServiceError";
   }
 }
@@ -55,6 +55,63 @@ function errorBody(err: unknown): string {
 }
 
 export type ClerkDeleteResult = "deleted" | "not_found";
+
+export interface ClerkPhoneAccount {
+  clerkUserId: string;
+  clerkOrgId: string;
+}
+
+/**
+ * Create a signup-equivalent Clerk identity for a phone number: a Clerk user
+ * that carries the phone as a sign-in identifier, plus a Clerk organization the
+ * user administers (createdBy). This mirrors what a dashboard signup produces
+ * (user + personal org), so the resulting account behaves identically downstream.
+ *
+ * Claimability: the phone is a real Clerk identifier, so the same person can
+ * later sign in on the dashboard via SMS OTP to this number (Clerk verifies the
+ * number at OTP time) and land on the SAME Clerk user + org — then add an
+ * email/OAuth identity or a payment card. The account is never a dead end.
+ *
+ * The Clerk user is created WITHOUT a password (skipPasswordRequirement) since
+ * phone-OTP is the sign-in path; a password can be added later on claim.
+ *
+ * Fail loud: any Clerk failure throws ClerkServiceError. If the user was created
+ * but the org creation failed, the orphan user is best-effort deleted before the
+ * throw so a retry can recreate cleanly (the delete result is logged, never
+ * swallowed as success).
+ */
+export async function createClerkPhoneAccount(
+  phone: string,
+  orgName: string,
+): Promise<ClerkPhoneAccount> {
+  const clerk = getClerkClient();
+  let clerkUserId: string | undefined;
+  try {
+    const user = await clerk.users.createUser({
+      phoneNumber: [phone],
+      skipPasswordRequirement: true,
+    });
+    clerkUserId = user.id;
+    const org = await clerk.organizations.createOrganization({
+      name: orgName,
+      createdBy: user.id,
+    });
+    return { clerkUserId: user.id, clerkOrgId: org.id };
+  } catch (err: unknown) {
+    if (clerkUserId) {
+      // Best-effort cleanup of the orphan user so a retry recreates cleanly.
+      try {
+        await clerk.users.deleteUser(clerkUserId);
+      } catch (cleanupErr) {
+        console.error(
+          `[client-service] Failed to clean up orphan Clerk user ${clerkUserId} after phone-account create error:`,
+          cleanupErr,
+        );
+      }
+    }
+    throw new ClerkServiceError(errorStatus(err), errorBody(err));
+  }
+}
 
 /**
  * Delete a Clerk organization online, keyed by its Clerk org id.

@@ -11,17 +11,22 @@ import { closeDb } from "../helpers/test-db.js";
  */
 describe("migration 0006 dedup logic", () => {
   beforeEach(async () => {
-    // Drop the unique index so we can insert duplicates
+    // Drop the unique indexes so we can reproduce the pre-0006 schema state.
+    // idx_users_phone (migration 0009) also didn't exist in the 0006 era and
+    // would reject the dedup UPDATE's transient duplicate-phone intermediate
+    // state (keep-row + not-yet-deleted dupe momentarily share a phone).
     await sql`DROP INDEX IF EXISTS "idx_users_external_id"`;
+    await sql`DROP INDEX IF EXISTS "idx_users_phone"`;
     await sql`DELETE FROM users`;
     await sql`DELETE FROM orgs`;
   });
 
   afterEach(async () => {
-    // Recreate the unique index to restore normal schema state
+    // Recreate the unique indexes to restore normal schema state
     await sql`DELETE FROM users`;
     await sql`DELETE FROM orgs`;
     await sql`CREATE UNIQUE INDEX IF NOT EXISTS "idx_users_external_id" ON "users" USING btree ("external_id")`;
+    await sql`CREATE UNIQUE INDEX IF NOT EXISTS "idx_users_phone" ON "users" USING btree ("phone")`;
   });
 
   afterAll(async () => {
