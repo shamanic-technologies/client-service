@@ -89,7 +89,10 @@ router.post("/internal/phone-accounts", requireApiKey, async (req, res) => {
     }
 
     // 1. Create the Clerk identity (user + org). Fail loud on Clerk error.
-    const orgName = `WhatsApp ${phone}`;
+    // Clerk rejects org names containing a phone number (PII guard). Use a
+    // non-phone display name; the phone lives in whatsapp_users + the synthetic
+    // Clerk email. The user can rename the org on the dashboard later.
+    const orgName = "WhatsApp user";
     const { clerkUserId, clerkOrgId } = await createClerkPhoneAccount(phone, orgName);
 
     // 2. Reserve internal rows. The unique phone index arbitrates the race.
