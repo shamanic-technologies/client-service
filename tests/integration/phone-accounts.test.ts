@@ -71,11 +71,12 @@ describe("phone-accounts routes", () => {
       expect(res.body.orgId).toMatch(/^[0-9a-f-]{36}$/);
       expect(res.body.userId).toMatch(/^[0-9a-f-]{36}$/);
 
-      // Clerk identity created once.
+      // Clerk identity created once, keyed on a synthetic email (NOT the phone).
       expect(createUserMock).toHaveBeenCalledWith({
-        phoneNumber: [PHONE],
+        emailAddress: ["wa-15551230000@phone.distribute.you"],
         skipPasswordRequirement: true,
       });
+      expect(createUserMock.mock.calls[0][0]).not.toHaveProperty("phoneNumber");
       expect(createOrgMock).toHaveBeenCalledTimes(1);
 
       // Billing welcome triggered with the internal org+user UUIDs.
@@ -89,6 +90,33 @@ describe("phone-accounts routes", () => {
       const [row] = await db.select().from(users).where(eq(users.phone, PHONE));
       expect(row.externalId).toBe("user_new");
       expect(row.orgId).toBe(res.body.orgId);
+    });
+
+    it("provisions a +33 France phone end-to-end (phone identifier is Clerk-unsupported)", async () => {
+      const FR_PHONE = "+33612345678";
+      createUserMock.mockResolvedValueOnce({ id: "user_fr" });
+      createOrgMock.mockResolvedValueOnce({ id: "org_fr" });
+
+      const res = await request(app)
+        .post("/internal/phone-accounts")
+        .set("x-api-key", API_KEY)
+        .send({ phone: FR_PHONE });
+
+      expect(res.status).toBe(200);
+      expect(res.body.created).toBe(true);
+      expect(res.body.phone).toBe(FR_PHONE);
+      expect(res.body.clerkUserId).toBe("user_fr");
+      expect(res.body.clerkOrgId).toBe("org_fr");
+
+      // Keyed on a synthetic email, never the France phone.
+      expect(createUserMock).toHaveBeenCalledWith({
+        emailAddress: ["wa-33612345678@phone.distribute.you"],
+        skipPasswordRequirement: true,
+      });
+      // Billing welcome granted, resolvable afterward via the stored phone.
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      const [row] = await db.select().from(users).where(eq(users.phone, FR_PHONE));
+      expect(row.externalId).toBe("user_fr");
     });
 
     it("is idempotent per phone — repeat returns existing, no new Clerk/billing calls", async () => {

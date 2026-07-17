@@ -60,8 +60,10 @@ class PhoneRaceLostError extends Error {}
  * POST /internal/phone-accounts - Provision (or return) an account for a phone.
  *
  * Idempotent per phone. A brand-new phone gets a full signup-equivalent account:
- *   1. Clerk user (phone identifier) + Clerk organization (user administers it).
- *   2. Internal org/user rows mapping the Clerk ids to internal UUIDs, phone stored.
+ *   1. Clerk user (synthetic-email identifier, NOT phone) + Clerk organization
+ *      (user administers it). Phone is not a Clerk identifier — see clerk-client.
+ *   2. Internal org/user rows mapping the Clerk ids to internal UUIDs, phone stored
+ *      as the channel's mapping key.
  *   3. billing-service welcome path (welcome credit + Stripe customer) — reused,
  *      never granted here.
  * A known phone short-circuits at step 0 (no Clerk/billing calls).
