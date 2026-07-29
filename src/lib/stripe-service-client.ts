@@ -1,14 +1,16 @@
+import { fetchWithRetry } from "./fetch-retry.js";
+
 /**
- * Error thrown when stripe-service returns a non-2xx, non-404 failure deleting
- * a customer. Carries the upstream HTTP status + body so the route can fail
- * loud with the real provider error (never a swallowed 200).
+ * Error thrown when stripe-service returns a non-2xx. Carries the upstream HTTP
+ * status + body so the route can fail loud with the real provider error (never a
+ * swallowed 200).
  */
 export class StripeServiceError extends Error {
   constructor(
     public readonly status: number,
     public readonly body: string,
   ) {
-    super(`[client-service] stripe-service customer delete failed (${status}): ${body}`);
+    super(`[client-service] stripe-service call failed (${status}): ${body}`);
     this.name = "StripeServiceError";
   }
 }
@@ -48,4 +50,56 @@ export async function deleteStripeCustomerByOrg(orgId: string): Promise<StripeDe
 
   const body = await res.text();
   throw new StripeServiceError(res.status, body);
+}
+
+/** Gross money an org paid in, per currency (minor units). */
+export type OrgPaymentTotal = {
+  currency: string;
+  amountReceivedCents: number;
+};
+
+/**
+ * Read how much real money an org has paid in, via stripe-service
+ * `GET /internal/payment_summary/by-org/{orgId}`.
+ *
+ * We keep only `amount_received` — gross paid in, summed over the org's
+ * `succeeded` PaymentIntents. That is the "did this org actually go through a
+ * paid checkout" signal. We deliberately do NOT use `amount_net`: a later refund
+ * or lost dispute does not un-happen the checkout, and netting to zero would
+ * retroactively turn a paying org into a never-paid one.
+ *
+ * Totals are returned per currency and never summed across currencies. An org
+ * with no mirrored payments returns an empty array (stripe-service never
+ * fabricates a zero row).
+ *
+ * Fail loud: any non-2xx throws StripeServiceError.
+ */
+export async function getOrgPaymentTotals(orgId: string): Promise<OrgPaymentTotal[]> {
+  const baseUrl = process.env.STRIPE_SERVICE_URL;
+  const apiKey = process.env.STRIPE_SERVICE_API_KEY;
+  if (!baseUrl) {
+    throw new Error("[client-service] STRIPE_SERVICE_URL not configured");
+  }
+  if (!apiKey) {
+    throw new Error("[client-service] STRIPE_SERVICE_API_KEY not configured");
+  }
+
+  const url = `${baseUrl.replace(/\/$/, "")}/internal/payment_summary/by-org/${encodeURIComponent(orgId)}`;
+  const res = await fetchWithRetry(url, { headers: { "x-api-key": apiKey } });
+
+  if (!res.ok) {
+    throw new StripeServiceError(res.status, await res.text());
+  }
+
+  const payload = (await res.json()) as {
+    totals?: Array<{ currency?: unknown; amount_received?: unknown }>;
+  };
+  const totals = Array.isArray(payload.totals) ? payload.totals : [];
+
+  return totals
+    .filter((t) => typeof t.currency === "string" && typeof t.amount_received === "number")
+    .map((t) => ({
+      currency: t.currency as string,
+      amountReceivedCents: t.amount_received as number,
+    }));
 }

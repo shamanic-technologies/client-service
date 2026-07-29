@@ -157,6 +157,69 @@ const OrgRecordResponseSchema = z
   })
   .openapi("OrgRecordResponse");
 
+// --- Brand checkout status ---
+
+export const BrandCheckoutParamsSchema = z
+  .object({
+    brandId: z.string().uuid(),
+  })
+  .openapi("BrandCheckoutParams");
+
+export const OrgBrandCheckoutParamsSchema = z
+  .object({
+    orgId: z.string().uuid(),
+    brandId: z.string().uuid(),
+  })
+  .openapi("OrgBrandCheckoutParams");
+
+const OrgPaymentTotalSchema = z
+  .object({
+    currency: z.string().openapi({ description: "Stripe currency code, e.g. 'usd'." }),
+    amountReceivedCents: z.number().int().openapi({
+      description:
+        "Gross minor units this org paid in, over its `succeeded` Stripe PaymentIntents. Never netted against refunds or lost disputes — a refund does not un-happen the checkout.",
+    }),
+  })
+  .openapi("OrgPaymentTotal");
+
+const OrgBrandCheckoutSchema = z
+  .object({
+    orgId: z.string().uuid(),
+    brandId: z.string().uuid(),
+    checkedOut: z.boolean().openapi({
+      description:
+        "True when this org both paid real money in AND committed this brand to spend (per-brand daily budget configured).",
+    }),
+    reason: z.enum(["checked_out", "no_brand_budget", "org_never_paid"]).openapi({
+      description:
+        "Why the verdict is what it is. `no_brand_budget`: this org set no daily budget for the brand, so it never committed it (reported first — it is the brand-specific miss). `org_never_paid`: the brand is committed but the org has no succeeded Stripe payment.",
+    }),
+    brandDailyBudgetCents: z.string().nullable().openapi({
+      description:
+        "billing-service's stored per-(org, brand) daily spend ceiling, verbatim, or null when this org configured none. Null is a real unset state, never a defaulted zero.",
+    }),
+    orgPayments: z.array(OrgPaymentTotalSchema).openapi({
+      description:
+        "Gross paid in per currency, from stripe-service. Empty when the org has no mirrored payments — never a fabricated zero row. Currencies are never summed together.",
+    }),
+  })
+  .openapi("OrgBrandCheckout");
+
+const BrandCheckoutResponseSchema = z
+  .object({
+    brandId: z.string().uuid(),
+    status: z.enum(["checked_out", "not_checked_out", "no_org_claims_brand"]).openapi({
+      description:
+        "`checked_out`: at least one claiming org completed checkout. `not_checked_out`: the brand IS claimed by one or more orgs and none of them completed checkout — a truthful 'nobody paid for this brand'. `no_org_claims_brand`: brand-service reports no org claiming this id (unknown brand, or an unclaimed global brand row), so nobody can have paid on it.",
+    }),
+    checkedOut: z.boolean(),
+    orgs: z.array(OrgBrandCheckoutSchema).openapi({
+      description:
+        "One entry per org claiming this brand, each with its own verdict. Empty only when status is `no_org_claims_brand`. The orgs that paid are the entries with `checkedOut: true`.",
+    }),
+  })
+  .openapi("BrandCheckoutResponse");
+
 // --- Org Teardown ---
 
 export const OrgTeardownParamsSchema = z
@@ -431,6 +494,76 @@ registry.registerPath({
     },
     401: {
       description: "Unauthorized",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+    500: {
+      description: "Internal server error",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+  },
+});
+
+registry.registerPath({
+  method: "get",
+  path: "/internal/brands/{brandId}/checkout-status",
+  summary: "Has ANY org gone through checkout for this brand?",
+  description:
+    "Answers, for one brand, whether any organization has actually gone through checkout on it — and which. client-service owns the user journey and sits between brand identity (brand-service) and money (billing-service / stripe-service), so it owns this join; consumers must not reconstruct it.\n\nAn (org, brand) pair counts as CHECKED OUT when BOTH legs hold: (1) MONEY — the org paid real money in (stripe-service reports a positive gross `amount_received` over its succeeded PaymentIntents); (2) BRAND COMMITMENT — the org configured a per-brand daily spend ceiling for THIS brand (a billing-service brand daily-budget row). Stripe carries no brand on any Checkout Session or PaymentIntent in the fleet, so the money leg alone cannot tell one brand from another; the budget leg is what makes the answer brand-specific, and in the product it is written by the post-payment launch step — an onboarding abandoned before paying never reaches it.\n\nBoth legs are read live from their owning service. client-service stores no copy and derives no fallback: an unset budget stays null, an org with no mirrored payments stays unpaid.\n\nThe never-paid case is a truthful 200, never a 404: `not_checked_out` means the brand IS claimed by orgs and none of them paid, while `no_org_claims_brand` means brand-service reports no org claiming this id at all (unknown brand, or an unclaimed global brand row).",
+  security: [{ ApiKeyAuth: [] }],
+  request: {
+    params: BrandCheckoutParamsSchema,
+  },
+  responses: {
+    200: {
+      description: "Brand checkout status across every org claiming the brand",
+      content: { "application/json": { schema: BrandCheckoutResponseSchema } },
+    },
+    400: {
+      description: "brandId is not a valid UUID",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+    401: {
+      description: "Unauthorized",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+    502: {
+      description:
+        "An upstream owner (brand-service, billing-service or stripe-service) failed. Fail loud — never a partial or defaulted verdict.",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+    500: {
+      description: "Internal server error",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+  },
+});
+
+registry.registerPath({
+  method: "get",
+  path: "/internal/orgs/{orgId}/brands/{brandId}/checkout-status",
+  summary: "Has THIS org gone through checkout for this brand?",
+  description:
+    "Single-pair verdict, same definition of 'checked out' as GET /internal/brands/{brandId}/checkout-status: the org must have paid real money in AND configured a per-brand daily spend ceiling for this brand.\n\nUse this when the caller already knows which org to ask about — it skips the brand-service membership lookup entirely. Because no brand lookup happens, this route cannot report `no_org_claims_brand`: an (org, brand) pair with no evidence returns `checkedOut: false` with the reason that applies.",
+  security: [{ ApiKeyAuth: [] }],
+  request: {
+    params: OrgBrandCheckoutParamsSchema,
+  },
+  responses: {
+    200: {
+      description: "Checkout verdict for this (org, brand) pair",
+      content: { "application/json": { schema: OrgBrandCheckoutSchema } },
+    },
+    400: {
+      description: "orgId or brandId is not a valid UUID",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+    401: {
+      description: "Unauthorized",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+    502: {
+      description:
+        "An upstream owner (billing-service or stripe-service) failed. Fail loud — never a partial or defaulted verdict.",
       content: { "application/json": { schema: ErrorResponseSchema } },
     },
     500: {
