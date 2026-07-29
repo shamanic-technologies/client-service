@@ -29,6 +29,24 @@ describe("phone-accounts routes", () => {
   const app = createTestApp();
   const fetchMock = vi.fn();
 
+  /** The Clerk secret now comes from key-service, so a provision makes two outbound
+   *  calls (key-service, then billing). Assert on the billing ones specifically. */
+  const billingCalls = () =>
+    fetchMock.mock.calls.filter(([url]) => String(url).includes("billing.test"));
+
+  /** Route the stub by URL: key-service serves the platform key, billing succeeds. */
+  const upstreamsOk = (billing: { ok: boolean; status?: number; body?: string } = { ok: true }) =>
+    fetchMock.mockImplementation(async (url: string) => {
+      if (String(url).includes("key.test")) {
+        return { ok: true, status: 200, json: async () => ({ provider: "clerk", key: "sk_test_clerk" }) };
+      }
+      return {
+        ok: billing.ok,
+        status: billing.status ?? 200,
+        text: async () => billing.body ?? "{}",
+      };
+    });
+
   beforeEach(async () => {
     await cleanTestData();
     createUserMock.mockReset();
@@ -37,11 +55,11 @@ describe("phone-accounts routes", () => {
     deleteOrgMock.mockReset();
     fetchMock.mockReset();
     vi.stubGlobal("fetch", fetchMock);
-    process.env.CLERK_SECRET_KEY = "sk_test_clerk";
+    process.env.KEY_SERVICE_URL = "https://key.test";
+    process.env.KEY_SERVICE_API_KEY = "key_key";
     process.env.BILLING_SERVICE_URL = "https://billing.test";
     process.env.BILLING_SERVICE_API_KEY = "billing_key";
-    // Billing welcome path succeeds by default.
-    fetchMock.mockResolvedValue({ ok: true, text: async () => "{}" });
+    upstreamsOk();
   });
 
   afterEach(() => {
@@ -80,8 +98,8 @@ describe("phone-accounts routes", () => {
       expect(createOrgMock).toHaveBeenCalledTimes(1);
 
       // Billing welcome triggered with the internal org+user UUIDs.
-      expect(fetchMock).toHaveBeenCalledTimes(1);
-      const [url, opts] = fetchMock.mock.calls[0];
+      expect(billingCalls()).toHaveLength(1);
+      const [url, opts] = billingCalls()[0];
       expect(url).toBe("https://billing.test/v1/accounts");
       expect(opts.headers["x-org-id"]).toBe(res.body.orgId);
       expect(opts.headers["x-user-id"]).toBe(res.body.userId);
@@ -114,7 +132,7 @@ describe("phone-accounts routes", () => {
         skipPasswordRequirement: true,
       });
       // Billing welcome granted, resolvable afterward via the stored phone.
-      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(billingCalls()).toHaveLength(1);
       const [row] = await db.select().from(users).where(eq(users.phone, FR_PHONE));
       expect(row.externalId).toBe("user_fr");
     });
@@ -144,7 +162,7 @@ describe("phone-accounts routes", () => {
       // No duplicate account: Clerk create + billing each fired exactly once.
       expect(createUserMock).toHaveBeenCalledTimes(1);
       expect(createOrgMock).toHaveBeenCalledTimes(1);
-      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(billingCalls()).toHaveLength(1);
 
       const rows = await db.select().from(users).where(eq(users.phone, PHONE));
       expect(rows).toHaveLength(1);
@@ -163,8 +181,7 @@ describe("phone-accounts routes", () => {
     it("fails loud (502) and creates no local rows when billing welcome fails", async () => {
       createUserMock.mockResolvedValueOnce({ id: "user_bf" });
       createOrgMock.mockResolvedValueOnce({ id: "org_bf" });
-      fetchMock.mockReset();
-      fetchMock.mockResolvedValueOnce({ ok: false, status: 500, text: async () => "billing down" });
+      upstreamsOk({ ok: false, status: 500, body: "billing down" });
 
       const res = await request(app)
         .post("/internal/phone-accounts")
