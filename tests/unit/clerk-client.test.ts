@@ -22,16 +22,38 @@ import {
   ClerkServiceError,
 } from "../../src/lib/clerk-client.js";
 
+const KEY_SERVICE_URL = "https://key.test";
+
+/** The Clerk secret is resolved from key-service on every operation. */
+function stubKeyService(key = "sk_test_clerk") {
+  const fn = vi.fn(async () => ({
+    ok: true,
+    status: 200,
+    json: async () => ({ provider: "clerk", key }),
+  }));
+  vi.stubGlobal("fetch", fn);
+  return fn;
+}
+
+function stubKeyServiceFailure(status: number, body: string) {
+  const fn = vi.fn(async () => ({ ok: false, status, text: async () => body }));
+  vi.stubGlobal("fetch", fn);
+  return fn;
+}
+
+beforeEach(() => {
+  process.env.KEY_SERVICE_URL = KEY_SERVICE_URL;
+  process.env.KEY_SERVICE_API_KEY = "key_key";
+  stubKeyService();
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
 describe("deleteClerkOrganization", () => {
-  const savedKey = process.env.CLERK_SECRET_KEY;
-
   beforeEach(() => {
-    process.env.CLERK_SECRET_KEY = "sk_test_clerk";
     deleteOrgMock.mockReset();
-  });
-
-  afterEach(() => {
-    process.env.CLERK_SECRET_KEY = savedKey;
   });
 
   it("returns 'deleted' when Clerk deletes the org", async () => {
@@ -54,22 +76,39 @@ describe("deleteClerkOrganization", () => {
     expect(err.status).toBe(500);
   });
 
-  it("throws when CLERK_SECRET_KEY is not configured", async () => {
-    delete process.env.CLERK_SECRET_KEY;
-    await expect(deleteClerkOrganization("org_x")).rejects.toThrow("CLERK_SECRET_KEY not configured");
+  it("fails loud when key-service has no clerk platform key (never runs the Clerk call)", async () => {
+    stubKeyServiceFailure(404, "Platform key not found: no 'clerk' platform key configured");
+    await expect(deleteClerkOrganization("org_x")).rejects.toThrow(
+      "key-service GET /keys/platform/clerk/decrypt failed (404)",
+    );
+    expect(deleteOrgMock).not.toHaveBeenCalled();
+  });
+
+  it("resolves the secret from key-service with the caller headers it requires", async () => {
+    const fetchMock = stubKeyService();
+    deleteOrgMock.mockResolvedValueOnce({ id: "org_h", deleted: true });
+
+    await deleteClerkOrganization("org_h");
+
+    const [url, opts] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe(`${KEY_SERVICE_URL}/keys/platform/clerk/decrypt`);
+    expect(opts.headers).toMatchObject({
+      "x-api-key": "key_key",
+      "x-caller-service": "client-service",
+      "x-caller-method": "DELETE",
+      "x-caller-path": "/internal/orgs/:orgId",
+    });
+  });
+
+  it("throws when KEY_SERVICE_URL is not configured", async () => {
+    delete process.env.KEY_SERVICE_URL;
+    await expect(deleteClerkOrganization("org_x")).rejects.toThrow("KEY_SERVICE_URL not configured");
   });
 });
 
 describe("deleteClerkUser", () => {
-  const savedKey = process.env.CLERK_SECRET_KEY;
-
   beforeEach(() => {
-    process.env.CLERK_SECRET_KEY = "sk_test_clerk";
     deleteUserMock.mockReset();
-  });
-
-  afterEach(() => {
-    process.env.CLERK_SECRET_KEY = savedKey;
   });
 
   it("returns 'deleted' when Clerk deletes the user", async () => {
@@ -94,17 +133,10 @@ describe("deleteClerkUser", () => {
 });
 
 describe("createClerkPhoneAccount", () => {
-  const savedKey = process.env.CLERK_SECRET_KEY;
-
   beforeEach(() => {
-    process.env.CLERK_SECRET_KEY = "sk_test_clerk";
     createUserMock.mockReset();
     createOrgMock.mockReset();
     deleteUserMock.mockReset();
-  });
-
-  afterEach(() => {
-    process.env.CLERK_SECRET_KEY = savedKey;
   });
 
   it("creates a user keyed on a synthetic email (NOT the phone), no password, + an org they administer", async () => {

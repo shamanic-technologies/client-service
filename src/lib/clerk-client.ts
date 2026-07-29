@@ -1,4 +1,5 @@
 import { createClerkClient, type ClerkClient } from "@clerk/backend";
+import { getPlatformKey, type CallerInfo } from "./key-service-client.js";
 
 /**
  * Error thrown when Clerk returns a non-404 failure deleting an organization.
@@ -15,17 +16,33 @@ export class ClerkServiceError extends Error {
   }
 }
 
-let cached: ClerkClient | null = null;
+/** key-service provider name holding the Clerk backend secret. */
+const CLERK_PROVIDER = "clerk";
 
-function getClerkClient(): ClerkClient {
-  const secretKey = process.env.CLERK_SECRET_KEY;
-  if (!secretKey) {
-    throw new Error("[client-service] CLERK_SECRET_KEY not configured");
+/**
+ * Clerk client memoized against the secret it was built with. Keying the cache on
+ * the secret — rather than caching unconditionally — means a key rotation in
+ * key-service swaps the client on the next call instead of pinning the dead
+ * secret for the life of the process.
+ */
+let cached: { secretKey: string; client: ClerkClient } | null = null;
+
+/**
+ * Build (or reuse) a Clerk client, resolving the secret from key-service.
+ *
+ * The secret deliberately does NOT live in this service's Railway env: it is a
+ * shared platform secret like every other one in the fleet, registered into
+ * key-service by the app that owns it. `caller` names the route asking for it so
+ * key-service can track which of our endpoints depend on Clerk.
+ *
+ * Fail loud: an unresolvable secret throws and the Clerk operation never runs.
+ */
+async function getClerkClient(caller: CallerInfo): Promise<ClerkClient> {
+  const secretKey = await getPlatformKey(CLERK_PROVIDER, caller);
+  if (!cached || cached.secretKey !== secretKey) {
+    cached = { secretKey, client: createClerkClient({ secretKey }) };
   }
-  if (!cached) {
-    cached = createClerkClient({ secretKey });
-  }
-  return cached;
+  return cached.client;
 }
 
 function isNotFound(err: unknown): boolean {
@@ -114,7 +131,7 @@ export async function createClerkPhoneAccount(
   phone: string,
   orgName: string,
 ): Promise<ClerkPhoneAccount> {
-  const clerk = getClerkClient();
+  const clerk = await getClerkClient({ method: "POST", path: "/internal/phone-accounts" });
   let clerkUserId: string | undefined;
   try {
     const user = await clerk.users.createUser({
@@ -149,7 +166,7 @@ export async function createClerkPhoneAccount(
  * Any other failure throws ClerkServiceError (fail loud).
  */
 export async function deleteClerkOrganization(clerkOrgId: string): Promise<ClerkDeleteResult> {
-  const clerk = getClerkClient();
+  const clerk = await getClerkClient({ method: "DELETE", path: "/internal/orgs/:orgId" });
   try {
     await clerk.organizations.deleteOrganization(clerkOrgId);
     return "deleted";
@@ -165,7 +182,7 @@ export async function deleteClerkOrganization(clerkOrgId: string): Promise<Clerk
  * Any other failure throws ClerkServiceError (fail loud).
  */
 export async function deleteClerkUser(clerkUserId: string): Promise<ClerkDeleteResult> {
-  const clerk = getClerkClient();
+  const clerk = await getClerkClient({ method: "DELETE", path: "/internal/orgs/:orgId" });
   try {
     await clerk.users.deleteUser(clerkUserId);
     return "deleted";
