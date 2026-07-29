@@ -5,6 +5,7 @@ import resolveRoutes from "../../src/routes/resolve.js";
 import phoneAccountsRoutes from "../../src/routes/phone-accounts.js";
 import usersRoutes from "../../src/routes/users.js";
 import orgsRoutes from "../../src/routes/orgs.js";
+import checkoutStatusRoutes from "../../src/routes/checkout-status.js";
 import statsRoutes from "../../src/routes/stats.js";
 import invitesRoutes from "../../src/routes/invites.js";
 import waitlistRoutes from "../../src/routes/waitlist.js";
@@ -23,6 +24,7 @@ export function createTestApp() {
   app.use(phoneAccountsRoutes);
   app.use(usersRoutes);
   app.use(orgsRoutes);
+  app.use(checkoutStatusRoutes);
   app.use(statsRoutes);
   app.use(invitesRoutes);
   app.use(waitlistRoutes);

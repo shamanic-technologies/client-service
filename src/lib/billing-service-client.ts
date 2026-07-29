@@ -1,16 +1,17 @@
 import { randomUUID } from "node:crypto";
+import { fetchWithRetry } from "./fetch-retry.js";
 
 /**
- * Error thrown when billing-service returns a non-2xx creating/reading an org's
- * billing account. Carries the upstream HTTP status + body so the caller can
- * fail loud with the real provider error (never a swallowed 200).
+ * Error thrown when billing-service returns a non-2xx. Carries the upstream HTTP
+ * status + body so the caller can fail loud with the real provider error (never
+ * a swallowed 200).
  */
 export class BillingServiceError extends Error {
   constructor(
     public readonly status: number,
     public readonly body: string,
   ) {
-    super(`[client-service] billing-service account provisioning failed (${status}): ${body}`);
+    super(`[client-service] billing-service call failed (${status}): ${body}`);
     this.name = "BillingServiceError";
   }
 }
@@ -56,4 +57,44 @@ export async function ensureBillingWelcome(orgId: string, userId: string): Promi
 
   const body = await res.text();
   throw new BillingServiceError(res.status, body);
+}
+
+/**
+ * Read the daily spend ceiling org `orgId` has configured for brand `brandId`,
+ * via billing-service `GET /internal/brands/{brandId}/daily-budget`.
+ *
+ * Returns the raw cents string billing serves, or `null` when the org has NO
+ * budget configured for that brand — billing's own documented "legitimate unset
+ * state". We pass `null` straight through: an absent budget is exactly the
+ * signal that this org never committed this brand to spend, and substituting a
+ * zero/default here would erase it.
+ *
+ * Fail loud: any non-2xx throws BillingServiceError.
+ */
+export async function getBrandDailyBudgetCents(
+  orgId: string,
+  brandId: string,
+): Promise<string | null> {
+  const baseUrl = process.env.BILLING_SERVICE_URL;
+  const apiKey = process.env.BILLING_SERVICE_API_KEY;
+  if (!baseUrl) {
+    throw new Error("[client-service] BILLING_SERVICE_URL not configured");
+  }
+  if (!apiKey) {
+    throw new Error("[client-service] BILLING_SERVICE_API_KEY not configured");
+  }
+
+  const url = `${baseUrl.replace(/\/$/, "")}/internal/brands/${encodeURIComponent(brandId)}/daily-budget`;
+  const res = await fetchWithRetry(url, {
+    headers: { "x-api-key": apiKey, "x-org-id": orgId },
+  });
+
+  if (!res.ok) {
+    throw new BillingServiceError(res.status, await res.text());
+  }
+
+  const payload = (await res.json()) as { dailyBudgetCents?: unknown };
+  const raw = payload.dailyBudgetCents;
+  if (raw === null || raw === undefined) return null;
+  return String(raw);
 }
