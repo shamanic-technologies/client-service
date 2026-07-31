@@ -311,14 +311,6 @@ const ClaimInviteResponseSchema = z
   })
   .openapi("ClaimInviteResponse");
 
-const ClaimInviteCappedResponseSchema = z
-  .object({
-    error: z.string(),
-    used: z.number().int(),
-    total: z.number().int(),
-  })
-  .openapi("ClaimInviteCappedResponse");
-
 export const InviteStatusParamsSchema = z
   .object({
     orgId: z.string().uuid(),
@@ -327,10 +319,11 @@ export const InviteStatusParamsSchema = z
 
 const InviteStatusResponseSchema = z
   .object({
-    used: z.number().int(),
-    total: z.number().int(),
+    signups: z
+      .number()
+      .int()
+      .describe("How many orgs have signed up through this org's invite code. Uncapped."),
     code: z.string().nullable(),
-    expired: z.boolean(),
   })
   .openapi("InviteStatusResponse");
 
@@ -778,7 +771,7 @@ registry.registerPath({
   },
   responses: {
     200: {
-      description: "Validation result (valid=false covers unknown-slug and capped-org)",
+      description: "Validation result (valid=false means no org owns this code — there is no cap)",
       content: { "application/json": { schema: ValidateInviteResponseSchema } },
     },
     400: {
@@ -799,7 +792,8 @@ registry.registerPath({
 registry.registerPath({
   method: "post",
   path: "/internal/invites/claim",
-  summary: "Claim an invite code for a freshly-created org (idempotent)",
+  summary:
+    "Claim an invite code for a freshly-created org (idempotent) and tell billing-service who referred whom",
   security: [{ ApiKeyAuth: [] }],
   request: {
     body: {
@@ -823,12 +817,13 @@ registry.registerPath({
       description: "Unknown invite code or invitee org",
       content: { "application/json": { schema: ErrorResponseSchema } },
     },
-    409: {
-      description: "Invite cap reached (3 successful signups already)",
-      content: { "application/json": { schema: ClaimInviteCappedResponseSchema } },
-    },
     500: {
       description: "Internal server error",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+    502: {
+      description:
+        "Invite recorded but billing-service could not be notified — retry the same claim (idempotent; it will re-send the notification and not duplicate it)",
       content: { "application/json": { schema: ErrorResponseSchema } },
     },
   },

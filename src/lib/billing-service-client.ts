@@ -60,6 +60,56 @@ export async function ensureBillingWelcome(orgId: string, userId: string): Promi
 }
 
 /**
+ * Tell billing-service that `inviteeOrgId` signed up through `inviterOrgId`'s
+ * invite link, via `POST /internal/referrals/claim`.
+ *
+ * billing owns every consequence: it opens the INVITEE's outstanding free-credit
+ * promise carrying the referrer, and remembers who to pay when that promise is
+ * earned. Nothing is granted here and nothing is granted there at claim time —
+ * client-service moves no money and holds no amount.
+ *
+ * Field names are billing's, not ours: its `orgId` is the org being referred
+ * (our invitee) and `referrerOrgId` is the inviter.
+ *
+ * Idempotent on billing's side too — a repeat claim of the same pair returns the
+ * existing promise with `alreadyClaimed: true` rather than opening a second one.
+ * That is a backstop, not our guard: the caller only calls this when
+ * `invites.billing_notified_at` is still NULL.
+ *
+ * Fail loud: any non-2xx throws BillingServiceError, which the claim route turns
+ * into a 502. In particular billing answers 409 when the invitee was already
+ * referred by a DIFFERENT org — a real conflict a retry cannot resolve, so it
+ * surfaces rather than being absorbed.
+ */
+export async function notifyReferralClaim(params: {
+  inviterOrgId: string;
+  inviteeOrgId: string;
+}): Promise<void> {
+  const baseUrl = process.env.BILLING_SERVICE_URL;
+  const apiKey = process.env.BILLING_SERVICE_API_KEY;
+  if (!baseUrl) {
+    throw new Error("[client-service] BILLING_SERVICE_URL not configured");
+  }
+  if (!apiKey) {
+    throw new Error("[client-service] BILLING_SERVICE_API_KEY not configured");
+  }
+
+  const url = `${baseUrl.replace(/\/$/, "")}/internal/referrals/claim`;
+  const res = await fetchWithRetry(url, {
+    method: "POST",
+    headers: { "x-api-key": apiKey, "content-type": "application/json" },
+    body: JSON.stringify({
+      orgId: params.inviteeOrgId,
+      referrerOrgId: params.inviterOrgId,
+    }),
+  });
+
+  if (!res.ok) {
+    throw new BillingServiceError(res.status, await res.text());
+  }
+}
+
+/**
  * Read the daily spend ceiling org `orgId` has configured for brand `brandId`,
  * via billing-service `GET /internal/brands/{brandId}/daily-budget`.
  *
