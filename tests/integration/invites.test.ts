@@ -1,10 +1,16 @@
-import { describe, it, expect, beforeEach, afterAll } from "vitest";
+import { describe, it, expect, beforeEach, afterAll, vi } from "vitest";
 import request from "supertest";
 import { and, eq } from "drizzle-orm";
 import { createTestApp } from "../helpers/test-app.js";
 import { cleanTestData, insertTestOrg, closeDb, randomId } from "../helpers/test-db.js";
 import { db } from "../../src/db/index.js";
 import { invites } from "../../src/db/schema.js";
+import { notifyReferralClaim } from "../../src/lib/billing-service-client.js";
+
+vi.mock("../../src/lib/billing-service-client.js", async (importActual) => {
+  const actual = await importActual<typeof import("../../src/lib/billing-service-client.js")>();
+  return { ...actual, notifyReferralClaim: vi.fn() };
+});
 
 const API_KEY = "test_api_key";
 
@@ -30,7 +36,7 @@ describe("POST /public/invites/validate", () => {
     expect(res.body).toEqual({ valid: false });
   });
 
-  it("should return valid:true with inviterOrgName for known slug with 0/3 used", async () => {
+  it("should return valid:true with inviterOrgName for a known slug with no signups yet", async () => {
     await insertTestOrg({ externalId: "org-stripe", name: "Stripe", slug: "stripe" });
 
     const res = await request(app)
@@ -42,43 +48,35 @@ describe("POST /public/invites/validate", () => {
     expect(res.body).toEqual({ valid: true, inviterOrgName: "Stripe" });
   });
 
-  it("should return valid:true with 2/3 used", async () => {
-    const inviter = await insertTestOrg({ externalId: "org-2used", name: "Two Used", slug: "two-used" });
-    const invitee1 = await insertTestOrg({ externalId: "org-2used-i1" });
-    const invitee2 = await insertTestOrg({ externalId: "org-2used-i2" });
-    await db.insert(invites).values([
-      { inviterOrgId: inviter.id, inviteeOrgId: invitee1.id, code: "two-used", status: "signed_up", signedUpAt: new Date() },
-      { inviterOrgId: inviter.id, inviteeOrgId: invitee2.id, code: "two-used", status: "signed_up", signedUpAt: new Date() },
-    ]);
+  it.each([3, 10, 50])(
+    "should stay valid for an inviter that already brought in %i signups (no cap)",
+    async (signups) => {
+      const slug = `bulk-${signups}`;
+      const inviter = await insertTestOrg({ externalId: `org-${slug}`, name: "Bulk", slug });
+      const invitees = await Promise.all(
+        Array.from({ length: signups }, (_, i) =>
+          insertTestOrg({ externalId: `org-${slug}-i${i}` }),
+        ),
+      );
+      await db.insert(invites).values(
+        invitees.map((invitee) => ({
+          inviterOrgId: inviter.id,
+          inviteeOrgId: invitee.id,
+          code: slug,
+          status: "signed_up" as const,
+          signedUpAt: new Date(),
+        })),
+      );
 
-    const res = await request(app)
-      .post("/public/invites/validate")
-      .set("x-api-key", API_KEY)
-      .send({ code: "two-used" });
+      const res = await request(app)
+        .post("/public/invites/validate")
+        .set("x-api-key", API_KEY)
+        .send({ code: slug });
 
-    expect(res.status).toBe(200);
-    expect(res.body.valid).toBe(true);
-  });
-
-  it("should return valid:false when capped (3/3 used)", async () => {
-    const inviter = await insertTestOrg({ externalId: "org-capped", name: "Capped", slug: "capped" });
-    const i1 = await insertTestOrg({ externalId: "org-c-i1" });
-    const i2 = await insertTestOrg({ externalId: "org-c-i2" });
-    const i3 = await insertTestOrg({ externalId: "org-c-i3" });
-    await db.insert(invites).values([
-      { inviterOrgId: inviter.id, inviteeOrgId: i1.id, code: "capped", status: "signed_up", signedUpAt: new Date() },
-      { inviterOrgId: inviter.id, inviteeOrgId: i2.id, code: "capped", status: "signed_up", signedUpAt: new Date() },
-      { inviterOrgId: inviter.id, inviteeOrgId: i3.id, code: "capped", status: "signed_up", signedUpAt: new Date() },
-    ]);
-
-    const res = await request(app)
-      .post("/public/invites/validate")
-      .set("x-api-key", API_KEY)
-      .send({ code: "capped" });
-
-    expect(res.status).toBe(200);
-    expect(res.body.valid).toBe(false);
-  });
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({ valid: true, inviterOrgName: "Bulk" });
+    },
+  );
 
   it("should return 400 for missing code", async () => {
     const res = await request(app)
@@ -112,12 +110,14 @@ describe("POST /public/invites/validate", () => {
 
 describe("POST /internal/invites/claim", () => {
   const app = createTestApp();
+  const notifyMock = vi.mocked(notifyReferralClaim);
 
   beforeEach(async () => {
     await cleanTestData();
+    notifyMock.mockReset().mockResolvedValue(undefined);
   });
 
-  it("should claim invite (happy path)", async () => {
+  it("should claim invite (happy path) and notify billing with both org identities", async () => {
     const inviter = await insertTestOrg({ externalId: "org-claim-inv", slug: "claim-test" });
     const invitee = await insertTestOrg({ externalId: "org-claim-i1" });
 
@@ -129,6 +129,12 @@ describe("POST /internal/invites/claim", () => {
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ ok: true, inviterOrgId: inviter.id });
 
+    expect(notifyMock).toHaveBeenCalledTimes(1);
+    expect(notifyMock).toHaveBeenCalledWith({
+      inviterOrgId: inviter.id,
+      inviteeOrgId: invitee.id,
+    });
+
     const rows = await db
       .select()
       .from(invites)
@@ -137,6 +143,7 @@ describe("POST /internal/invites/claim", () => {
     expect(rows[0].status).toBe("signed_up");
     expect(rows[0].signedUpAt).not.toBeNull();
     expect(rows[0].code).toBe("claim-test");
+    expect(rows[0].billingNotifiedAt).not.toBeNull();
   });
 
   it("should return 404 for unknown code", async () => {
@@ -189,56 +196,100 @@ describe("POST /internal/invites/claim", () => {
     expect(rows[0].signedUpAt?.getTime()).toBe(firstSignedUpAt?.getTime());
   });
 
-  it("should reject 4th claim with HTTP 409", async () => {
-    const inviter = await insertTestOrg({ externalId: "org-4th", slug: "fourth" });
-    const i1 = await insertTestOrg({ externalId: "org-4th-i1" });
-    const i2 = await insertTestOrg({ externalId: "org-4th-i2" });
-    const i3 = await insertTestOrg({ externalId: "org-4th-i3" });
-    const i4 = await insertTestOrg({ externalId: "org-4th-i4" });
+  it("should NOT notify billing a second time when the same pair is re-claimed", async () => {
+    await insertTestOrg({ externalId: "org-notify-once", slug: "notify-once" });
+    const invitee = await insertTestOrg({ externalId: "org-notify-once-i" });
 
-    for (const invitee of [i1, i2, i3]) {
-      const r = await request(app)
+    for (let i = 0; i < 3; i++) {
+      const res = await request(app)
         .post("/internal/invites/claim")
         .set("x-api-key", API_KEY)
-        .send({ code: "fourth", inviteeOrgId: invitee.id });
-      expect(r.status).toBe(200);
+        .send({ code: "notify-once", inviteeOrgId: invitee.id });
+      expect(res.status).toBe(200);
     }
+
+    expect(notifyMock).toHaveBeenCalledTimes(1);
+
+    const [row] = await db.select().from(invites).where(eq(invites.inviteeOrgId, invitee.id));
+    const notifiedAt = row.billingNotifiedAt;
+    expect(notifiedAt).not.toBeNull();
+
+    // The marker is written once and never refreshed.
+    const [again] = await db.select().from(invites).where(eq(invites.inviteeOrgId, invitee.id));
+    expect(again.billingNotifiedAt?.getTime()).toBe(notifiedAt?.getTime());
+  });
+
+  it("should 502 (never a quiet 200) when billing-service cannot be notified", async () => {
+    await insertTestOrg({ externalId: "org-billfail", slug: "billfail" });
+    const invitee = await insertTestOrg({ externalId: "org-billfail-i" });
+    notifyMock.mockRejectedValueOnce(new Error("billing-service call failed (503): down"));
 
     const res = await request(app)
       .post("/internal/invites/claim")
       .set("x-api-key", API_KEY)
-      .send({ code: "fourth", inviteeOrgId: i4.id });
+      .send({ code: "billfail", inviteeOrgId: invitee.id });
 
-    expect(res.status).toBe(409);
-    expect(res.body).toEqual({ error: "Invite cap reached", used: 3, total: 3 });
+    expect(res.status).toBe(502);
+    expect(res.body.error).toBe("Invite recorded but billing-service could not be notified");
 
-    const count = (await db.select().from(invites).where(eq(invites.inviterOrgId, inviter.id))).length;
-    expect(count).toBe(3);
+    const [row] = await db.select().from(invites).where(eq(invites.inviteeOrgId, invitee.id));
+    expect(row.status).toBe("signed_up");
+    expect(row.billingNotifiedAt).toBeNull();
   });
 
-  it("should allow idempotent re-claim of an existing invitee even when capped at 3/3", async () => {
-    const inviter = await insertTestOrg({ externalId: "org-capreclaim", slug: "capreclaim" });
-    const invitees = await Promise.all([
-      insertTestOrg({ externalId: "org-cr-i1" }),
-      insertTestOrg({ externalId: "org-cr-i2" }),
-      insertTestOrg({ externalId: "org-cr-i3" }),
-    ]);
+  it("should retry the billing notification on the next claim after a failure", async () => {
+    await insertTestOrg({ externalId: "org-billretry", slug: "billretry" });
+    const invitee = await insertTestOrg({ externalId: "org-billretry-i" });
+    notifyMock.mockRejectedValueOnce(new Error("billing down"));
 
-    for (const invitee of invitees) {
-      await request(app)
-        .post("/internal/invites/claim")
-        .set("x-api-key", API_KEY)
-        .send({ code: "capreclaim", inviteeOrgId: invitee.id });
-    }
-
-    const res = await request(app)
+    const failed = await request(app)
       .post("/internal/invites/claim")
       .set("x-api-key", API_KEY)
-      .send({ code: "capreclaim", inviteeOrgId: invitees[0].id });
+      .send({ code: "billretry", inviteeOrgId: invitee.id });
+    expect(failed.status).toBe(502);
 
-    expect(res.status).toBe(200);
-    expect(res.body.ok).toBe(true);
+    const retried = await request(app)
+      .post("/internal/invites/claim")
+      .set("x-api-key", API_KEY)
+      .send({ code: "billretry", inviteeOrgId: invitee.id });
+    expect(retried.status).toBe(200);
+
+    expect(notifyMock).toHaveBeenCalledTimes(2);
+
+    const rows = await db.select().from(invites).where(eq(invites.inviteeOrgId, invitee.id));
+    expect(rows).toHaveLength(1);
+    expect(rows[0].billingNotifiedAt).not.toBeNull();
   });
+
+  // Each claim is a real round-trip, so this walks the count rather than jumping
+  // to 50 — the 50-signup case is covered by validate + status, which is where
+  // the cap used to be read from. What matters here is that nothing rejects past
+  // the old ceiling of 3.
+  it.each([3, 10])(
+    "should accept signup number %i for the same inviter (no cap)",
+    { timeout: 60_000 },
+    async (signups) => {
+      const slug = `claim-bulk-${signups}`;
+      const inviter = await insertTestOrg({ externalId: `org-${slug}`, slug });
+      const invitees = await Promise.all(
+        Array.from({ length: signups }, (_, i) =>
+          insertTestOrg({ externalId: `org-${slug}-i${i}` }),
+        ),
+      );
+
+      for (const invitee of invitees) {
+        const res = await request(app)
+          .post("/internal/invites/claim")
+          .set("x-api-key", API_KEY)
+          .send({ code: slug, inviteeOrgId: invitee.id });
+        expect(res.status).toBe(200);
+      }
+
+      const rows = await db.select().from(invites).where(eq(invites.inviterOrgId, inviter.id));
+      expect(rows).toHaveLength(signups);
+      expect(notifyMock).toHaveBeenCalledTimes(signups);
+    },
+  );
 
   it("should return 400 for missing inviteeOrgId", async () => {
     const res = await request(app)
@@ -265,7 +316,7 @@ describe("GET /internal/orgs/:orgId/invites/status", () => {
     await cleanTestData();
   });
 
-  it("should return 0/3 with expired=false for unused org", async () => {
+  it("should report zero signups for an org that has not referred anyone", async () => {
     const org = await insertTestOrg({ externalId: "org-status-fresh", slug: "fresh" });
 
     const res = await request(app)
@@ -273,33 +324,37 @@ describe("GET /internal/orgs/:orgId/invites/status", () => {
       .set("x-api-key", API_KEY);
 
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ used: 0, total: 3, code: "fresh", expired: false });
+    expect(res.body).toEqual({ signups: 0, code: "fresh" });
   });
 
-  it("should return 3/3 with expired=true at cap", async () => {
-    const org = await insertTestOrg({ externalId: "org-status-capped", slug: "status-capped" });
-    const invitees = await Promise.all([
-      insertTestOrg({ externalId: "org-sc-i1" }),
-      insertTestOrg({ externalId: "org-sc-i2" }),
-      insertTestOrg({ externalId: "org-sc-i3" }),
-    ]);
-    await db.insert(invites).values(
-      invitees.map((i) => ({
-        inviterOrgId: org.id,
-        inviteeOrgId: i.id,
-        code: "status-capped",
-        status: "signed_up" as const,
-        signedUpAt: new Date(),
-      })),
-    );
+  it.each([3, 10, 50])(
+    "should report %i signups and nothing expired or capped",
+    async (signups) => {
+      const slug = `status-bulk-${signups}`;
+      const org = await insertTestOrg({ externalId: `org-${slug}`, slug });
+      const invitees = await Promise.all(
+        Array.from({ length: signups }, (_, i) => insertTestOrg({ externalId: `org-${slug}-i${i}` })),
+      );
+      await db.insert(invites).values(
+        invitees.map((i) => ({
+          inviterOrgId: org.id,
+          inviteeOrgId: i.id,
+          code: slug,
+          status: "signed_up" as const,
+          signedUpAt: new Date(),
+        })),
+      );
 
-    const res = await request(app)
-      .get(`/internal/orgs/${org.id}/invites/status`)
-      .set("x-api-key", API_KEY);
+      const res = await request(app)
+        .get(`/internal/orgs/${org.id}/invites/status`)
+        .set("x-api-key", API_KEY);
 
-    expect(res.status).toBe(200);
-    expect(res.body).toEqual({ used: 3, total: 3, code: "status-capped", expired: true });
-  });
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({ signups, code: slug });
+      expect(res.body).not.toHaveProperty("expired");
+      expect(res.body).not.toHaveProperty("total");
+    },
+  );
 
   it("should return code:null for org without slug", async () => {
     const org = await insertTestOrg({ externalId: "org-status-noslug" });
@@ -310,8 +365,7 @@ describe("GET /internal/orgs/:orgId/invites/status", () => {
 
     expect(res.status).toBe(200);
     expect(res.body.code).toBeNull();
-    expect(res.body.used).toBe(0);
-    expect(res.body.expired).toBe(false);
+    expect(res.body.signups).toBe(0);
   });
 
   it("should return 404 for unknown orgId", async () => {

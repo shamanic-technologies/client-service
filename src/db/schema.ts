@@ -52,6 +52,11 @@ export const invites = pgTable(
     status: text("status").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     signedUpAt: timestamp("signed_up_at", { withTimezone: true }),
+    // Set only once billing-service has acknowledged the referral for this row.
+    // NULL means "not delivered yet" — the next idempotent claim of the same
+    // (code, invitee) retries; a non-NULL value is the guard that stops us
+    // notifying billing twice for the same pair.
+    billingNotifiedAt: timestamp("billing_notified_at", { withTimezone: true }),
   },
   (table) => [
     uniqueIndex("idx_invites_inviter_invitee_unique")
