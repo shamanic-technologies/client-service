@@ -582,25 +582,6 @@
           "inviterOrgId"
         ]
       },
-      "ClaimInviteCappedResponse": {
-        "type": "object",
-        "properties": {
-          "error": {
-            "type": "string"
-          },
-          "used": {
-            "type": "integer"
-          },
-          "total": {
-            "type": "integer"
-          }
-        },
-        "required": [
-          "error",
-          "used",
-          "total"
-        ]
-      },
       "ClaimInviteBody": {
         "type": "object",
         "properties": {
@@ -621,25 +602,18 @@
       "InviteStatusResponse": {
         "type": "object",
         "properties": {
-          "used": {
-            "type": "integer"
-          },
-          "total": {
-            "type": "integer"
+          "signups": {
+            "type": "integer",
+            "description": "How many orgs have signed up through this org's invite code. Uncapped."
           },
           "code": {
             "type": "string",
             "nullable": true
-          },
-          "expired": {
-            "type": "boolean"
           }
         },
         "required": [
-          "used",
-          "total",
-          "code",
-          "expired"
+          "signups",
+          "code"
         ]
       },
       "WaitlistRequestResponse": {
@@ -1596,7 +1570,7 @@
         },
         "responses": {
           "200": {
-            "description": "Validation result (valid=false covers unknown-slug and capped-org)",
+            "description": "Validation result (valid=false means no org owns this code — there is no cap)",
             "content": {
               "application/json": {
                 "schema": {
@@ -1640,7 +1614,7 @@
     },
     "/internal/invites/claim": {
       "post": {
-        "summary": "Claim an invite code for a freshly-created org (idempotent)",
+        "summary": "Claim an invite code for a freshly-created org (idempotent) and tell billing-service who referred whom",
         "security": [
           {
             "ApiKeyAuth": []
@@ -1696,18 +1670,18 @@
               }
             }
           },
-          "409": {
-            "description": "Invite cap reached (3 successful signups already)",
+          "500": {
+            "description": "Internal server error",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ClaimInviteCappedResponse"
+                  "$ref": "#/components/schemas/ErrorResponse"
                 }
               }
             }
           },
-          "500": {
-            "description": "Internal server error",
+          "502": {
+            "description": "Invite recorded but billing-service could not be notified — retry the same claim (idempotent; it will re-send the notification and not duplicate it)",
             "content": {
               "application/json": {
                 "schema": {
