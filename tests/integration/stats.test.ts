@@ -34,11 +34,11 @@ describe("GET /public/stats/users", () => {
   });
 
   it("should return correct totals", async () => {
-    const org1 = await insertTestOrg({ externalId: "org-1" });
-    const org2 = await insertTestOrg({ externalId: "org-2" });
-    await insertTestUser({ externalId: "user-1", orgId: org1.id });
-    await insertTestUser({ externalId: "user-2", orgId: org1.id });
-    await insertTestUser({ externalId: "user-3", orgId: org2.id });
+    const org1 = await insertTestOrg({ externalId: "org_2abc1" });
+    const org2 = await insertTestOrg({ externalId: "org_2abc2" });
+    await insertTestUser({ externalId: "user_2abc1", orgId: org1.id });
+    await insertTestUser({ externalId: "user_2abc2", orgId: org1.id });
+    await insertTestUser({ externalId: "user_2abc3", orgId: org2.id });
 
     const res = await request(app)
       .get("/public/stats/users")
@@ -50,8 +50,8 @@ describe("GET /public/stats/users", () => {
   });
 
   it("should return monthly growth breakdown", async () => {
-    const org = await insertTestOrg({ externalId: "org-monthly" });
-    await insertTestUser({ externalId: "user-monthly", orgId: org.id });
+    const org = await insertTestOrg({ externalId: "org_2monthly" });
+    await insertTestUser({ externalId: "user_2monthly", orgId: org.id });
 
     const res = await request(app)
       .get("/public/stats/users")
@@ -70,20 +70,20 @@ describe("GET /public/stats/users", () => {
     // Insert orgs/users with backdated created_at
     const [org1] = await db
       .insert(orgs)
-      .values({ externalId: "org-jan", createdAt: new Date("2026-01-15T00:00:00Z") })
+      .values({ externalId: "org_2jan", createdAt: new Date("2026-01-15T00:00:00Z") })
       .returning();
     await db
       .insert(orgs)
-      .values({ externalId: "org-feb", createdAt: new Date("2026-02-10T00:00:00Z") });
+      .values({ externalId: "org_2feb", createdAt: new Date("2026-02-10T00:00:00Z") });
     await db
       .insert(users)
-      .values({ externalId: "user-jan-1", orgId: org1.id, createdAt: new Date("2026-01-20T00:00:00Z") });
+      .values({ externalId: "user_2jan1", orgId: org1.id, createdAt: new Date("2026-01-20T00:00:00Z") });
     await db
       .insert(users)
-      .values({ externalId: "user-jan-2", orgId: org1.id, createdAt: new Date("2026-01-25T00:00:00Z") });
+      .values({ externalId: "user_2jan2", orgId: org1.id, createdAt: new Date("2026-01-25T00:00:00Z") });
     await db
       .insert(users)
-      .values({ externalId: "user-feb-1", orgId: org1.id, createdAt: new Date("2026-02-05T00:00:00Z") });
+      .values({ externalId: "user_2feb1", orgId: org1.id, createdAt: new Date("2026-02-05T00:00:00Z") });
 
     const res = await request(app)
       .get("/public/stats/users")
@@ -104,10 +104,10 @@ describe("GET /public/stats/users", () => {
     // Insert in reverse order
     await db
       .insert(orgs)
-      .values({ externalId: "org-mar", createdAt: new Date("2026-03-01T00:00:00Z") });
+      .values({ externalId: "org_2mar", createdAt: new Date("2026-03-01T00:00:00Z") });
     await db
       .insert(orgs)
-      .values({ externalId: "org-jan", createdAt: new Date("2026-01-01T00:00:00Z") });
+      .values({ externalId: "org_2jan2", createdAt: new Date("2026-01-01T00:00:00Z") });
 
     const res = await request(app)
       .get("/public/stats/users")
@@ -118,19 +118,20 @@ describe("GET /public/stats/users", () => {
     expect(months).toEqual([...months].sort());
   });
 
-  it("should exclude test/dev data from counts", async () => {
-    const realOrg = await insertTestOrg({ externalId: "org-real" });
-    // Org without external_id (dev artifact)
+  it("should only count Clerk-format IDs", async () => {
+    // Real Clerk org (org_xxx format)
+    const realOrg = await insertTestOrg({ externalId: "org_2realclerkorg" });
+    // Non-Clerk orgs that should be excluded
     await db.insert(orgs).values({ externalId: null });
+    await db.insert(orgs).values({ externalId: "growthagency" });
+    await db.insert(orgs).values({ externalId: "polaritycourse" });
+    await db.insert(orgs).values({ externalId: "org_2test" });
 
-    // Real user
-    await insertTestUser({ externalId: "user-real", orgId: realOrg.id });
-    // Test user external IDs
-    await db.insert(users).values({ externalId: "user_placeholder", orgId: realOrg.id });
-    await db.insert(users).values({ externalId: "user_2test", orgId: realOrg.id });
-    // System account
+    // Real Clerk user (user_xxx format)
+    await insertTestUser({ externalId: "user_2realclerkuser", orgId: realOrg.id });
+    // Non-Clerk users that should be excluded
+    await db.insert(users).values({ externalId: "550e8400-e29b-41d4-a716-446655440000", orgId: realOrg.id });
     await db.insert(users).values({ externalId: "system-migration", orgId: realOrg.id });
-    // User without external_id
     await db.insert(users).values({ externalId: null, orgId: realOrg.id });
 
     const res = await request(app)
