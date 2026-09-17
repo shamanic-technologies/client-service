@@ -148,3 +148,56 @@ export async function getBrandDailyBudgetCents(
   if (raw === null || raw === undefined) return null;
   return String(raw);
 }
+
+/**
+ * Tell billing-service that a customer completed one product reward task, via
+ * `POST /internal/credits/grant` with `reason: "product_task_completed"`.
+ *
+ * Same shape as the referral claim above: client-service holds no money. It does
+ * not grant credit, does not open a promise and holds no amount of its own — it
+ * states that a completion happened and hands billing the identifier of THAT
+ * completion. billing owns every consequence.
+ *
+ * `completionId` is our completion row's uuid. billing's idempotency for this
+ * reason is (org, completionId), because the reward RECURS — the same task comes
+ * round for the same org roughly every month, forever — so a fresh completion
+ * grants again while the same one retried never pays twice. The invite reasons
+ * keep their one-shot (org, reason) idempotency and refuse a completionId; we
+ * must send one here or billing 400s.
+ *
+ * Fail loud: any non-2xx throws BillingServiceError, which the reward route turns
+ * into a 502. A completion recorded here that never reached billing leaves a
+ * customer owed a dollar nobody will pay, so this is never fire-and-forget and
+ * never a swallowed error — the caller writes its delivery marker only after this
+ * resolves.
+ */
+export async function notifyProductTaskCompleted(params: {
+  orgId: string;
+  completionId: string;
+  amountCents: number;
+}): Promise<void> {
+  const baseUrl = process.env.BILLING_SERVICE_URL;
+  const apiKey = process.env.BILLING_SERVICE_API_KEY;
+  if (!baseUrl) {
+    throw new Error("[client-service] BILLING_SERVICE_URL not configured");
+  }
+  if (!apiKey) {
+    throw new Error("[client-service] BILLING_SERVICE_API_KEY not configured");
+  }
+
+  const url = `${baseUrl.replace(/\/$/, "")}/internal/credits/grant`;
+  const res = await fetchWithRetry(url, {
+    method: "POST",
+    headers: { "x-api-key": apiKey, "content-type": "application/json" },
+    body: JSON.stringify({
+      orgId: params.orgId,
+      amountCents: params.amountCents,
+      reason: "product_task_completed",
+      completionId: params.completionId,
+    }),
+  });
+
+  if (!res.ok) {
+    throw new BillingServiceError(res.status, await res.text());
+  }
+}
