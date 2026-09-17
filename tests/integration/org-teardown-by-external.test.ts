@@ -68,7 +68,7 @@ describe("DELETE /internal/orgs/by-external/:externalOrgId (teardown by Clerk or
     expect(res.status).toBe(200);
     // Summary reports the resolved INTERNAL uuid, not the Clerk id
     expect(res.body.orgId).toBe(org.id);
-    expect(res.body.clientService).toEqual({ orgs: 1, users: 2, invites: 0 });
+    expect(res.body.clientService).toEqual({ orgs: 1, users: 2, invites: 0, rewardTasks: 0 });
     expect(res.body.clerk).toBe("deleted");
     expect(res.body.clerkUsers).toEqual({ deleted: 2, notFound: 0 });
 

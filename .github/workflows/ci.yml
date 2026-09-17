@@ -39,10 +39,15 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      # Replay the real migrations, not `db:push`. `push` builds tables from
+      # schema.ts and therefore CANNOT create anything that lives only in SQL —
+      # the gold `reward_task_status` view and the `reward_task_due_at()`
+      # function among them. Prod runs `migrate()` at boot, so a CI that pushes
+      # is testing a schema production never has.
       - name: Run migrations
         env:
           CLIENT_SERVICE_DATABASE_URL: postgresql://test:test@localhost:5432/test
-        run: pnpm db:push
+        run: pnpm db:migrate
 
       - name: Run tests
         env:
