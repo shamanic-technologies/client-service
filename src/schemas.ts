@@ -157,6 +157,102 @@ const OrgRecordResponseSchema = z
   })
   .openapi("OrgRecordResponse");
 
+// --- Reward tasks (bronze / silver / gold ledger) ---
+
+export const BrandRewardTasksParamsSchema = z
+  .object({
+    brandId: z.string().uuid(),
+  })
+  .openapi("BrandRewardTasksParams");
+
+export const BrandRewardTasksHeadersSchema = z
+  .object({
+    "x-org-id": z.string().uuid().optional().openapi({
+      description:
+        "Whose reward ledger to read. Optional when exactly one org claims the brand; REQUIRED when several do — we will not guess whose money a reward is.",
+    }),
+  })
+  .openapi("BrandRewardTasksHeaders");
+
+const RewardTaskScopeSchema = z
+  .object({
+    type: z.literal("sales_funnel").openapi({
+      description:
+        "The granularity the task belongs to. The first reward task lives on ONE sales funnel of one offer of one brand.",
+    }),
+    brandId: z.string().uuid(),
+    offerId: z.string().uuid(),
+    funnelKey: z.string().openapi({
+      description: "brand-service's funnel key, e.g. `website_purchases`.",
+    }),
+  })
+  .openapi("RewardTaskScope");
+
+const RewardTaskSchema = z
+  .object({
+    taskKey: z.literal("sales_funnel_refresh").openapi({
+      description:
+        "Refresh this funnel's own money numbers: its conversion rates, the lifetime revenue of a client won through it, and where it sends people. Every money figure the product shows this customer is computed from them, so stale inputs make every one of them quietly wrong.",
+    }),
+    scope: RewardTaskScopeSchema,
+    rewardCents: z.number().int().openapi({
+      description: "What completing this task pays the customer, in cents. billing-service grants it; client-service holds no money.",
+    }),
+    due: z.boolean().openapi({ description: "True when the refresh is currently owed." }),
+    dueAt: z.string().openapi({
+      description:
+        "The instant this task becomes due — 30 days after its numbers last genuinely changed. While `due` is false it is in the future; when `due` is true it is SINCE WHEN the refresh has been owed.",
+    }),
+    lastCompletedAt: z.string().nullable().openapi({
+      description: "When this task was last completed, or null if never.",
+    }),
+    completedCount: z.number().int().openapi({
+      description: "How many times this task has been completed and paid, ever.",
+    }),
+    contentChangedAt: z.string().openapi({
+      description: "When this funnel's money content last genuinely changed. The clock the 30 days run from.",
+    }),
+    contentChangedProvenance: z.enum(["observed", "producer_ts"]).openapi({
+      description:
+        "`observed`: we compared two readings of the numbers and they differed — ours, certain. `producer_ts`: the first time we ever saw this funnel, so the baseline is brand-service's own last-touched timestamp. That timestamp also moves when a funnel is merely switched off or on, so it is an UPPER bound on the real change time: the task comes due no EARLIER than it should, never sooner.",
+    }),
+  })
+  .openapi("RewardTask");
+
+const RewardTaskRollupSchema = z
+  .object({
+    dueCount: z.number().int(),
+    taskCount: z.number().int(),
+  })
+  .openapi("RewardTaskRollup");
+
+export const BrandRewardTasksResponseSchema = z
+  .object({
+    brandId: z.string().uuid(),
+    orgId: z.string().uuid().nullable().openapi({
+      description: "Whose ledger this is. Null only when no org claims the brand — there is then nobody to reward.",
+    }),
+    status: z.enum(["ok", "no_org_claims_brand"]).openapi({
+      description:
+        "`no_org_claims_brand`: brand-service reports no org claiming this id (unknown brand, or an unclaimed global brand row), so no customer can earn on it. It is a determinate answer, not a failure and not a silent nothing-is-due — an upstream we could not reach is a 502 instead.",
+    }),
+    rewardCentsPerTask: z.number().int(),
+    tasks: z.array(RewardTaskSchema).openapi({
+      description:
+        "One entry per CURRENTLY ACTIVE sales funnel of this brand. A funnel switched off is not listed: nobody can refresh numbers on a funnel that is off. Its refresh clock is kept, so switching it back on does not reset anything.",
+    }),
+    rollup: z
+      .object({
+        brand: RewardTaskRollupSchema,
+        offers: z.array(z.object({ offerId: z.string().uuid() }).extend(RewardTaskRollupSchema.shape)),
+      })
+      .openapi({
+        description:
+          "How many children a superior scope has with something due, without restating the children's tasks: a brand page renders `brand`, an offer page renders its entry in `offers`.",
+      }),
+  })
+  .openapi("BrandRewardTasksResponse");
+
 // --- Brand checkout status ---
 
 export const BrandCheckoutParamsSchema = z
@@ -241,6 +337,10 @@ const OrgTeardownResponseSchema = z
       orgs: z.number().int(),
       users: z.number().int(),
       invites: z.number().int(),
+      rewardTasks: z.number().int().openapi({
+        description:
+          "Reward-task ledger rows removed for this org. The ledger is keyed on the org uuid rather than by FK, so it is cleared explicitly; each state's completions cascade with it.",
+      }),
     }),
     billing: z.literal("deleted"),
     campaign: z.literal("deleted"),
@@ -914,6 +1014,43 @@ registry.registerPath({
     },
     404: {
       description: "Email not on waitlist",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+    500: {
+      description: "Internal server error",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+  },
+});
+
+registry.registerPath({
+  method: "get",
+  path: "/internal/brands/{brandId}/reward-tasks",
+  summary: "The reward tasks of this brand's sales funnels: what is due, since when, and when it was last done",
+  description:
+    "client-service owns the customer's reward-task ledger, because it is the identity root and nothing else in the fleet remembers this. The ledger is layered: BRONZE is what brand-service actually served us for a funnel, SILVER is the canonical per-task state derived from it, GOLD is the view this endpoint answers from.\n\nThe first granularity is the SALES FUNNEL and the first task is `sales_funnel_refresh`. A funnel's own money numbers — its conversion rates, the lifetime revenue of a client won through it, its destination and booking links — go stale, and every money figure the product shows that customer is computed from them, so we ask for a refresh roughly every 30 days. Completing one pays the customer $1.\n\nHOW A REAL REFRESH IS TOLD FROM A NO-OP. brand-service serves a last-touched timestamp with those numbers, but it is NOT a confirmation: it also moves when a funnel is merely switched off or back on, with nobody having looked at a single number. So a completion is judged on the money CONTENT itself — a fingerprint over the rates, the lifetime revenue and the links, with `active` and the timestamp deliberately excluded. Switching a funnel off and on again therefore completes nothing and pays nothing.\n\nTHIS READ OBSERVES, and there is no background job. The customer is on the funnel's page when they save their numbers and the dashboard re-reads this immediately after, so the read that matters always happens; a sweep nobody reads would be worse than none. A refresh that completes a task is paid inside this call — client-service tells billing-service, on the request path, and writes its delivery marker only once billing acknowledges, so a failed notification retries on the next call and a repeat never pays twice. client-service grants no credit and opens no promise: the money is billing's.\n\nFail loud everywhere: an upstream that could not answer is a 502, never a defaulted 'nothing is due'.",
+  security: [{ ApiKeyAuth: [] }],
+  request: {
+    params: BrandRewardTasksParamsSchema,
+    headers: BrandRewardTasksHeadersSchema,
+  },
+  responses: {
+    200: {
+      description: "This brand's sales-funnel reward tasks, with per-offer and per-brand due counts",
+      content: { "application/json": { schema: BrandRewardTasksResponseSchema } },
+    },
+    400: {
+      description:
+        "brandId is not a valid UUID, x-org-id is not a valid UUID, or several orgs claim the brand and none was named (`ORG_REQUIRED`)",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+    401: {
+      description: "Unauthorized",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+    502: {
+      description:
+        "An upstream owner failed: brand-service could not serve the offers or funnels, or billing-service could not be told about a completion. Never a partial or defaulted answer — a completion that billing has not acknowledged stays undelivered and retries.",
       content: { "application/json": { schema: ErrorResponseSchema } },
     },
     500: {

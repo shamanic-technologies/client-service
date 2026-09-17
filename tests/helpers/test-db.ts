@@ -1,10 +1,21 @@
 import { db, sql } from "../../src/db/index.js";
-import { orgs, users, invites, waitlist } from "../../src/db/schema.js";
+import {
+  orgs,
+  users,
+  invites,
+  waitlist,
+  rewardFunnelObservations,
+  rewardTaskStates,
+  rewardTaskCompletions,
+} from "../../src/db/schema.js";
 
 /**
  * Clean all test data from the database
  */
 export async function cleanTestData() {
+  await db.delete(rewardTaskCompletions);
+  await db.delete(rewardTaskStates);
+  await db.delete(rewardFunnelObservations);
   await db.delete(invites);
   await db.delete(waitlist);
   await db.delete(users);
