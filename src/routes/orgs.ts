@@ -1,7 +1,7 @@
 import { Router, type Response } from "express";
 import { and, eq } from "drizzle-orm";
 import { db } from "../db/index.js";
-import { users, orgs, invites } from "../db/schema.js";
+import { users, orgs, invites, rewardTaskStates, rewardTaskCompletions } from "../db/schema.js";
 import { requireApiKey } from "../middleware/auth.js";
 import {
   OrgGetParamsSchema,
@@ -28,7 +28,7 @@ const router = Router();
 
 interface TeardownSummary {
   orgId: string;
-  clientService: { orgs: number; users: number; invites: number };
+  clientService: { orgs: number; users: number; invites: number; rewardTasks: number };
   billing: "deleted";
   campaign: "deleted";
   runs: "deleted";
@@ -94,7 +94,7 @@ async function teardownOrg(orgId: string): Promise<TeardownSummary> {
   }
 
   // 4. client-service org-scoped data (LAST). One transaction.
-  let clientService = { orgs: 0, users: 0, invites: 0 };
+  let clientService = { orgs: 0, users: 0, invites: 0, rewardTasks: 0 };
   if (org) {
     clientService = await db.transaction(async (tx) => {
       const deletedUsers = await tx
@@ -111,6 +111,14 @@ async function teardownOrg(orgId: string): Promise<TeardownSummary> {
         .update(invites)
         .set({ inviteeOrgId: null })
         .where(eq(invites.inviteeOrgId, org.id));
+      // The reward-task ledger is org-scoped and keyed on the org uuid rather
+      // than by FK, so it must be cleared explicitly or the org's completions
+      // outlive it. Completions cascade from their state rows.
+      const deletedRewardStates = await tx
+        .delete(rewardTaskStates)
+        .where(eq(rewardTaskStates.orgId, org.id))
+        .returning({ id: rewardTaskStates.id });
+      await tx.delete(rewardTaskCompletions).where(eq(rewardTaskCompletions.orgId, org.id));
       const deletedOrgs = await tx
         .delete(orgs)
         .where(eq(orgs.id, org.id))
@@ -119,6 +127,7 @@ async function teardownOrg(orgId: string): Promise<TeardownSummary> {
         orgs: deletedOrgs.length,
         users: deletedUsers.length,
         invites: deletedInvites.length,
+        rewardTasks: deletedRewardStates.length,
       };
     });
   }

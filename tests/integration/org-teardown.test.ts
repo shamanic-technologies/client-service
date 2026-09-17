@@ -4,7 +4,13 @@ import { eq } from "drizzle-orm";
 import { createTestApp } from "../helpers/test-app.js";
 import { cleanTestData, insertTestOrg, insertTestUser, closeDb, randomId } from "../helpers/test-db.js";
 import { db } from "../../src/db/index.js";
-import { orgs, users, invites } from "../../src/db/schema.js";
+import {
+  orgs,
+  users,
+  invites,
+  rewardTaskStates,
+  rewardTaskCompletions,
+} from "../../src/db/schema.js";
 import { deleteClerkOrganization, deleteClerkUser, ClerkServiceError } from "../../src/lib/clerk-client.js";
 import { deleteStripeCustomerByOrg, StripeServiceError } from "../../src/lib/stripe-service-client.js";
 import {
@@ -57,6 +63,38 @@ describe("DELETE /internal/orgs/:orgId (cascade teardown)", () => {
     await closeDb();
   });
 
+  it("clears the org's reward-task ledger, completions and all", async () => {
+    const org = await insertTestOrg({ externalId: "org_reward_teardown" });
+    const [state] = await db
+      .insert(rewardTaskStates)
+      .values({
+        orgId: org.id,
+        brandId: randomId(),
+        offerId: randomId(),
+        funnelKey: "website_purchases",
+        taskKey: "sales_funnel_refresh",
+        contentFingerprint: "fp",
+        contentChangedAt: new Date(),
+        contentChangedProvenance: "observed",
+      })
+      .returning({ id: rewardTaskStates.id });
+    await db.insert(rewardTaskCompletions).values({
+      rewardTaskStateId: state.id,
+      orgId: org.id,
+      taskKey: "sales_funnel_refresh",
+      dueAt: new Date(),
+      rewardCents: 100,
+      billingNotifiedAt: new Date(),
+    });
+
+    const res = await request(app).delete(`/internal/orgs/${org.id}`).set("x-api-key", API_KEY);
+
+    expect(res.status).toBe(200);
+    expect(res.body.clientService.rewardTasks).toBe(1);
+    expect(await db.select().from(rewardTaskStates)).toHaveLength(0);
+    expect(await db.select().from(rewardTaskCompletions)).toHaveLength(0);
+  });
+
   it("tears down client-service data + Clerk + Stripe, returns JSON result", async () => {
     const org = await insertTestOrg({ externalId: "org_clerk_teardown", name: "Teardown Co" });
     await insertTestUser({ externalId: "u1", email: "a@t.com", orgId: org.id });
@@ -77,7 +115,7 @@ describe("DELETE /internal/orgs/:orgId (cascade teardown)", () => {
     expect(res.status).toBe(200);
     expect(res.body).toEqual({
       orgId: org.id,
-      clientService: { orgs: 1, users: 2, invites: 1 },
+      clientService: { orgs: 1, users: 2, invites: 1, rewardTasks: 0 },
       billing: "deleted",
       campaign: "deleted",
       runs: "deleted",
@@ -133,7 +171,7 @@ describe("DELETE /internal/orgs/:orgId (cascade teardown)", () => {
       .set("x-api-key", API_KEY);
 
     expect(res.status).toBe(200);
-    expect(res.body.clientService).toEqual({ orgs: 0, users: 0, invites: 0 });
+    expect(res.body.clientService).toEqual({ orgs: 0, users: 0, invites: 0, rewardTasks: 0 });
     expect(res.body.clerk).toBe("not_found"); // no row => no external_id => Clerk skipped
     expect(vi.mocked(deleteBillingByOrg)).toHaveBeenCalledWith(ghost);
     expect(vi.mocked(deleteCampaignsByOrg)).toHaveBeenCalledWith(ghost);

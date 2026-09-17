@@ -78,6 +78,13 @@
       "when": 1780156800000,
       "tag": "0010_invites_billing_notified",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1780243200000,
+      "tag": "0011_reward_task_ledger",
+      "breakpoints": true
     }
   ]
 }
