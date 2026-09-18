@@ -85,6 +85,13 @@
       "when": 1780243200000,
       "tag": "0011_reward_task_ledger",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1780329600000,
+      "tag": "0012_org_anonymous_claim",
+      "breakpoints": true
     }
   ]
 }

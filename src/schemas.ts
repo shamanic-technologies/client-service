@@ -37,6 +37,10 @@ export const ResolveBodySchema = z
     imageUrl: z.string().url().optional(),
     orgName: z.string().optional(),
     orgSlug: z.string().min(1).optional(),
+    anonymous: z.boolean().optional().openapi({
+      description:
+        "This org is coming into being WITHOUT an identity provider — the signed-out phase of onboarding, where the caller mints `externalOrgId` itself. Recorded on the row we CREATE and never re-derived afterwards, because it is what decides whether the org may later be claimed by a real identity. An existing org keeps whatever it already is: a real organisation can never be re-labelled anonymous by a later resolve.",
+    }),
   })
   .openapi("ResolveBody");
 
@@ -156,6 +160,62 @@ const OrgRecordResponseSchema = z
     name: z.string().nullable(),
   })
   .openapi("OrgRecordResponse");
+
+// --- Org Claim (anonymous org -> identity-provider org) ---
+
+export const OrgClaimParamsSchema = z
+  .object({
+    orgId: z.string().uuid().openapi({
+      description:
+        "The internal uuid of the anonymous org — the one every brand, funnel, audience, run and cost was written against while the visitor was signed out. It does not change; only the external identity does.",
+    }),
+  })
+  .openapi("OrgClaimParams");
+
+export const OrgClaimBodySchema = z
+  .object({
+    externalOrgId: z.string().min(1).openapi({
+      description: "The identity-provider organisation id the visitor just created (the Clerk `org_...`).",
+    }),
+    externalUserId: z.string().min(1).openapi({
+      description:
+        "The identity-provider user id of the person signing up. They end up attached to the org the way any member is.",
+    }),
+    email: z.string().email().optional(),
+    firstName: z.string().optional(),
+    lastName: z.string().optional(),
+    imageUrl: z.string().url().optional(),
+    orgName: z.string().optional(),
+    orgSlug: z.string().min(1).optional(),
+  })
+  .openapi("OrgClaimBody");
+
+const OrgClaimResponseSchema = z
+  .object({
+    orgId: z.string().uuid(),
+    userId: z.string().uuid(),
+    externalOrgId: z.string(),
+    claimedAt: z.string(),
+    alreadyClaimed: z.boolean().openapi({
+      description:
+        "true when this exact claim had already been made — a retried signup or a replayed request. The answer is the same either way; nothing is created twice.",
+    }),
+  })
+  .openapi("OrgClaimResponse");
+
+const OrgClaimRefusalSchema = z
+  .object({
+    error: z.string(),
+    reason: z.enum([
+      "org_not_found",
+      "org_not_anonymous",
+      "org_already_claimed",
+      "external_id_taken",
+      "invalid_request",
+      "internal_error",
+    ]),
+  })
+  .openapi("OrgClaimRefusal");
 
 // --- Reward tasks (bronze / silver / gold ledger) ---
 
@@ -561,6 +621,49 @@ registry.registerPath({
     500: {
       description: "Internal server error",
       content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+  },
+});
+
+registry.registerPath({
+  method: "post",
+  path: "/internal/orgs/{orgId}/claim",
+  summary: "An org that came into being without an identity provider now has one",
+  description:
+    "The signup wall sits at the END of onboarding. A visitor types their website and walks their entire setup — services, funnels, audiences, conversion rates, offer — signed out, and only then creates an account and pays. That signed-out phase is an ORDINARY organisation: one whose external identity is a throwaway id the dashboard mints instead of an identity-provider id. Brands, funnels, audiences, runs and spend are all written against it exactly as for any customer, because it IS an org.\n\nAt signup the visitor gets a brand-new identity-provider organisation, and everything they built is on the throwaway one. This endpoint says, once, that the two are the same organisation. The internal uuid is UNTOUCHED, so every reference taken before the call still resolves; only the external identity is swapped underneath it. Nothing is copied: there is no cross-service migration on the signup path, and therefore no failure mode that loses a customer's work right after they paid.\n\nIDEMPOTENT. Replaying the exact same claim re-attaches the same person and answers 200 with `alreadyClaimed: true`. A retried signup, or a browser that replays the request, produces neither a second organisation nor an error the customer sees.\n\nIT REFUSES RATHER THAN GUESSES, and each refusal carries its own `reason` so the caller can show the customer a different thing for each: `org_not_found`, `org_not_anonymous` (this org was never a throwaway one), `org_already_claimed` (it already carries a different identity), `external_id_taken` (that identity belongs to another org). Anonymity is a fact we RECORDED when the org was created (`anonymous: true` on /internal/resolve), never something inferred by inspecting what the external id looks like — a wrong guess would hand a stranger an organisation.\n\nThis is NOT an org-merge or org-transfer facility. It is the one transition anonymous -> identified, and that narrowness is what makes it safe.",
+  security: [{ ApiKeyAuth: [] }],
+  request: {
+    params: OrgClaimParamsSchema,
+    body: {
+      content: { "application/json": { schema: OrgClaimBodySchema } },
+    },
+  },
+  responses: {
+    200: {
+      description:
+        "The org now resolves by its new identity-provider id, and the signing-up person is a member of it. `alreadyClaimed: true` when this was a replay.",
+      content: { "application/json": { schema: OrgClaimResponseSchema } },
+    },
+    400: {
+      description: "Invalid orgId or body (`invalid_request`)",
+      content: { "application/json": { schema: OrgClaimRefusalSchema } },
+    },
+    401: {
+      description: "Unauthorized",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+    404: {
+      description: "No such org (`org_not_found`)",
+      content: { "application/json": { schema: OrgClaimRefusalSchema } },
+    },
+    409: {
+      description:
+        "Refused, distinguishably: `org_not_anonymous` (never a throwaway org), `org_already_claimed` (already carries a different identity), `external_id_taken` (that identity belongs to another org).",
+      content: { "application/json": { schema: OrgClaimRefusalSchema } },
+    },
+    500: {
+      description: "Internal server error",
+      content: { "application/json": { schema: OrgClaimRefusalSchema } },
     },
   },
 });
