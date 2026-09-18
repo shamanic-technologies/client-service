@@ -22,12 +22,20 @@ router.post("/internal/resolve", requireApiKey, async (req, res) => {
       return res.status(400).json({ error: "Invalid request body", details: parsed.error.flatten() });
     }
 
-    const { externalOrgId, externalUserId, email, firstName, lastName, imageUrl, orgName, orgSlug } = parsed.data;
+    const { externalOrgId, externalUserId, email, firstName, lastName, imageUrl, orgName, orgSlug, anonymous } = parsed.data;
 
+    // `anonymous` marks an org that comes into being WITHOUT an identity
+    // provider: the signed-out phase of onboarding, where the dashboard mints
+    // the external id itself. It is recorded ONLY on the row we create, and on
+    // the caller's declaration — the marker is what POST /internal/orgs/:orgId/claim
+    // later checks, and it must never be re-derived by looking at the id.
+    // On conflict the existing row keeps whatever it already says it is: a real
+    // Clerk org can never be re-labelled anonymous by a later resolve.
     const orgInsertData = {
       externalId: externalOrgId,
       ...(orgName !== undefined && { name: orgName }),
       ...(orgSlug !== undefined && { slug: orgSlug }),
+      ...(anonymous === true && { anonymousAt: new Date() }),
     };
 
     const orgUpdateSet: Record<string, unknown> = {

@@ -9,12 +9,30 @@ export const orgs = pgTable(
     name: text("name"),
     slug: text("slug"),
     metadata: jsonb("metadata"),
+    /**
+     * This org came into being WITHOUT an identity provider — the signed-out
+     * phase of onboarding, whose `external_id` is a throwaway id the dashboard
+     * minted. Written at creation on the caller's declaration, never inferred
+     * from what `external_id` looks like: a guard for WHERE a row came from
+     * cannot be a sniff of the row's own contents.
+     */
+    anonymousAt: timestamp("anonymous_at", { withTimezone: true }),
+    /**
+     * A real identity-provider organisation has been attached (the visitor
+     * signed up). NULL while still anonymous; non-NULL is what makes a second
+     * claim of the same identity a replay rather than a takeover.
+     */
+    claimedAt: timestamp("claimed_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     uniqueIndex("idx_orgs_external_id").on(table.externalId),
     uniqueIndex("idx_orgs_slug").on(table.slug).where(sql`${table.slug} IS NOT NULL`),
+    check(
+      "orgs_claimed_requires_anonymous",
+      sql`${table.claimedAt} IS NULL OR ${table.anonymousAt} IS NOT NULL`,
+    ),
   ]
 );
 
