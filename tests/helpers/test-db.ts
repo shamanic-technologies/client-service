@@ -25,13 +25,23 @@ export async function cleanTestData() {
 /**
  * Insert a test org
  */
-export async function insertTestOrg(data: { externalId?: string; name?: string; slug?: string } = {}) {
+export async function insertTestOrg(
+  data: {
+    externalId?: string;
+    name?: string;
+    slug?: string;
+    anonymousAt?: Date;
+    claimedAt?: Date;
+  } = {},
+) {
   const [org] = await db
     .insert(orgs)
     .values({
       externalId: data.externalId || `ext-org-${Date.now()}`,
       name: data.name,
       slug: data.slug,
+      anonymousAt: data.anonymousAt,
+      claimedAt: data.claimedAt,
     })
     .returning();
   return org;
