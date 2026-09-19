@@ -6,6 +6,7 @@ import phoneAccountsRoutes from "../../src/routes/phone-accounts.js";
 import usersRoutes from "../../src/routes/users.js";
 import orgsRoutes from "../../src/routes/orgs.js";
 import orgClaimRoutes from "../../src/routes/org-claim.js";
+import orgRealityRoutes from "../../src/routes/org-reality.js";
 import checkoutStatusRoutes from "../../src/routes/checkout-status.js";
 import rewardTasksRoutes from "../../src/routes/reward-tasks.js";
 import statsRoutes from "../../src/routes/stats.js";
@@ -27,6 +28,7 @@ export function createTestApp() {
   app.use(usersRoutes);
   app.use(orgsRoutes);
   app.use(orgClaimRoutes);
+  app.use(orgRealityRoutes);
   app.use(checkoutStatusRoutes);
   app.use(rewardTasksRoutes);
   app.use(statsRoutes);

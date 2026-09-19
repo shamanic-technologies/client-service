@@ -265,6 +265,39 @@
           "externalUserId"
         ]
       },
+      "OrgRealityResponse": {
+        "type": "object",
+        "properties": {
+          "realOrgIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "The subset of the submitted ids that name a REAL organisation. Ids that are anonymous-and-unclaimed, and ids that name no org at all, are absent."
+          }
+        },
+        "required": [
+          "realOrgIds"
+        ]
+      },
+      "OrgRealityBody": {
+        "type": "object",
+        "properties": {
+          "orgIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "maxItems": 500,
+            "description": "Internal org uuids to ask about. A domain can be owned by more than one org, so the question is asked for several at once."
+          }
+        },
+        "required": [
+          "orgIds"
+        ]
+      },
       "BrandCheckoutResponse": {
         "type": "object",
         "properties": {
@@ -1360,6 +1393,68 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/OrgClaimRefusal"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/internal/orgs/real": {
+      "post": {
+        "summary": "Which of these organisations are real ones?",
+        "description": "An organisation can come into being WITHOUT an identity provider: the signed-out phase of onboarding mints one before anything else exists, and brands, funnels and audiences are written against it exactly as for any customer. Nearly every such walk is abandoned, and the org then stays anonymous and unclaimed forever — a ghost with no person, no signup and no payment behind it.\n\nThis endpoint tells a caller which of the orgs it already holds are REAL. REAL means anything that is not an anonymous org still awaiting a claim: an ordinary org that was never anonymous is real, and an anonymous org that HAS since been claimed is real, because somebody signed up and it is theirs.\n\nBoth facts are recorded by this service — anonymity at creation, on the caller's declaration (`anonymous: true` on /internal/resolve), and the claim at POST /internal/orgs/{orgId}/claim. Neither is ever inferred from what an external org id looks like: the record exists precisely so nobody has to read a prefix, and a wrong guess would hand a stranger an organisation.\n\nThe answer carries NOTHING about an org beyond its id. The caller is typically acting on behalf of a visitor with no account, so no name, external identity or timestamp crosses the boundary — and an id naming no org is simply absent from the answer rather than distinguished, which is the same verdict (nobody real owns it) and leaks nothing about whether the id exists.\n\nFAIL LOUD. A read that could not be performed is a 500, never an empty list: a caller must be able to tell 'none of these are real' from 'we could not find out', or a real customer's domain could be handed away on a defaulted answer.",
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OrgRealityBody"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The subset of the submitted ids that are real organisations",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrgRealityResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Body is not { orgIds: uuid[] }",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The read failed. Fail loud — never a defaulted 'none of these are real'.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
                 }
               }
             }
