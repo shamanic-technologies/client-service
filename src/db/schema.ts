@@ -51,10 +51,13 @@ export const orgs = pgTable(
       "orgs_absorbed_both_or_neither",
       sql`(${table.absorbedAt} IS NULL) = (${table.absorbedIntoOrgId} IS NULL)`,
     ),
-    // A shell holds no identity: that is exactly what it gave away.
+    // A shell holds no identity: that is exactly what it gave away. BOTH
+    // halves — the id and the slug. Leaving the slug behind splits one
+    // identity-provider organisation across two rows, and the next
+    // authenticated read collides with the shell on idx_orgs_slug.
     check(
       "orgs_absorbed_has_no_identity",
-      sql`${table.absorbedAt} IS NULL OR ${table.externalId} IS NULL`,
+      sql`${table.absorbedAt} IS NULL OR (${table.externalId} IS NULL AND ${table.slug} IS NULL)`,
     ),
   ]
 );

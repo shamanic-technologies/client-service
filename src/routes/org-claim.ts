@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { eq } from "drizzle-orm";
+import { and, eq, ne } from "drizzle-orm";
 import { db } from "../db/index.js";
 import { orgs, users } from "../db/schema.js";
 import { requireApiKey } from "../middleware/auth.js";
@@ -15,9 +15,26 @@ const router = Router();
 /** Postgres unique-violation. A concurrent claim of the same identity lands here. */
 const UNIQUE_VIOLATION = "23505";
 
+/** The unique index each half of an identity is held under. */
+const EXTERNAL_ID_INDEX = "idx_orgs_external_id";
+const SLUG_INDEX = "idx_orgs_slug";
+
 function isUniqueViolation(error: unknown): boolean {
   return typeof error === "object" && error !== null && "code" in error &&
     (error as { code?: unknown }).code === UNIQUE_VIOLATION;
+}
+
+/**
+ * WHICH uniqueness a violation was about. An identity is two fields, so a
+ * collision on the slug must never be reported as `external_id_taken`: that
+ * refusal tells the customer the identity belongs to somebody else, when in
+ * fact only a name did.
+ */
+function violatedConstraint(error: unknown): string | null {
+  if (typeof error !== "object" || error === null) return null;
+  const candidate = error as { constraint_name?: unknown; constraint?: unknown };
+  const name = candidate.constraint_name ?? candidate.constraint;
+  return typeof name === "string" ? name : null;
 }
 
 /**
@@ -45,6 +62,9 @@ function isUniqueViolation(error: unknown): boolean {
  *   409 `external_id_taken`  - that identity belongs to another org, and that org
  *                              is somebody's: anonymous, claimed, or holding
  *                              work, money or members of its own.
+ *   409 `org_slug_taken`     - the identity's SLUG belongs to another org that
+ *                              is somebody's. Only a name is taken, so it is
+ *                              never reported as the identity being taken.
  *   502 `identity_holder_unverifiable`
  *                            - another org holds the identity and we could not
  *                              find out whether anything of anybody's sits on
@@ -60,6 +80,10 @@ function isUniqueViolation(error: unknown): boolean {
  * where it went (`absorbed_into_org_id`). Every other refusal stands untouched:
  * an org that IS anonymous, or HAS been claimed, or that anybody built anything
  * in, keeps its identity and the claim still answers `external_id_taken`.
+ * What is handed over is the WHOLE identity — the external id AND the slug,
+ * which came from the same identity-provider organisation and is held here
+ * under a unique index. A field left on the shell is a field the identity's own
+ * org cannot be resolved with, and the next authenticated read 500s on it.
  * Emptiness is CHECKED — members and state here, brands and money at the
  * services that own them — never assumed, and never inferred from what an
  * external id looks like.
@@ -180,13 +204,20 @@ router.post("/internal/orgs/:orgId/claim", requireApiKey, async (req, res) => {
         const local = await assessHolderLocally(tx, holder, externalUserId);
         if (!local.shell) return refuse;
 
-        // Hand the identity over. The shell keeps its uuid and its rows —
-        // absorbing is not a delete, and anything already pointing at it still
-        // resolves. It simply stops answering to an identity that was never its.
+        // Hand the identity over — the WHOLE identity. The slug came from the
+        // same identity-provider organisation the external id came from, and
+        // this service holds it under a unique index, so a slug left on the
+        // shell splits one organisation across two rows: the next
+        // authenticated read upserts the claiming org WITH its slug, collides,
+        // and 502s every page of the product. The shell keeps its uuid and its
+        // rows — absorbing is not a delete, and anything already pointing at it
+        // still resolves. It simply stops answering to an identity that was
+        // never its.
         await tx
           .update(orgs)
           .set({
             externalId: null,
+            slug: null,
             absorbedIntoOrgId: orgId,
             absorbedAt: new Date(),
             updatedAt: new Date(),
@@ -198,6 +229,31 @@ router.post("/internal/orgs/:orgId/claim", requireApiKey, async (req, res) => {
 
       const alreadyClaimed = org.claimedAt !== null;
       const claimedAt = org.claimedAt ?? new Date();
+
+      // The slug is the other half of the identity, and it is held here under a
+      // unique index. The shell that just handed the identity over released its
+      // slug in the same act above, so a slug still held at this point is
+      // somebody else's name — and the refusal says exactly that. Reporting it
+      // as `external_id_taken` would tell the customer the identity belongs to
+      // another org when only a name does.
+      if (!alreadyClaimed && orgSlug !== undefined) {
+        const [slugHolder] = await tx
+          .select({ id: orgs.id })
+          .from(orgs)
+          .where(and(eq(orgs.slug, orgSlug), ne(orgs.id, orgId)))
+          .for("update")
+          .limit(1);
+
+        if (slugHolder) {
+          return {
+            status: 409 as const,
+            body: {
+              error: "That organisation slug already belongs to another org",
+              reason: "org_slug_taken",
+            },
+          };
+        }
+      }
 
       if (!alreadyClaimed) {
         await tx
@@ -249,12 +305,24 @@ router.post("/internal/orgs/:orgId/claim", requireApiKey, async (req, res) => {
     return res.status(outcome.status).json(outcome.body);
   } catch (error) {
     // A claim racing another org's claim of the SAME identity: the loser hits
-    // the unique index on external_id. Same refusal as the pre-check.
+    // one of the two unique indexes. WHICH one decides what the customer is
+    // told — a collision on the slug is a name being taken, and reporting it
+    // as `external_id_taken` says the identity belongs to somebody else when
+    // it does not.
     if (isUniqueViolation(error)) {
-      return res.status(409).json({
-        error: "That identity already belongs to another org",
-        reason: "external_id_taken",
-      });
+      const constraint = violatedConstraint(error);
+      if (constraint === SLUG_INDEX) {
+        return res.status(409).json({
+          error: "That organisation slug already belongs to another org",
+          reason: "org_slug_taken",
+        });
+      }
+      if (constraint === null || constraint === EXTERNAL_ID_INDEX) {
+        return res.status(409).json({
+          error: "That identity already belongs to another org",
+          reason: "external_id_taken",
+        });
+      }
     }
     console.error("[client-service] Org claim error:", error);
     return res.status(500).json({ error: "Failed to claim org", reason: "internal_error" });
