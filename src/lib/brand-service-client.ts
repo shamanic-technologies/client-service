@@ -69,6 +69,40 @@ export async function listOrgsClaimingBrand(brandId: string): Promise<BrandOrgCl
     }));
 }
 
+/**
+ * List every brand the given org CLAIMS, via the same deterministic
+ * `GET /internal/brands/all` read — the only endpoint exposing the brand -> org
+ * membership edge, and the only one that does not lazy-fill a brand name through
+ * a platform-billed LLM extraction.
+ *
+ * The question it answers is "has anybody built anything in this org?", asked of
+ * an org the claim is about to take an identity away from. An empty list is a
+ * real answer (nobody claimed anything); an unreachable brand-service is NOT —
+ * it throws, and the claim refuses loudly rather than assuming emptiness.
+ */
+export async function listBrandsClaimedByOrg(orgId: string): Promise<BrandOrgClaim[]> {
+  const { baseUrl, apiKey } = brandServiceConfig();
+
+  const url = `${baseUrl}/internal/brands/all`;
+  const res = await fetchWithRetry(url, { headers: { "x-api-key": apiKey } });
+
+  if (!res.ok) {
+    throw new BrandServiceError(res.status, await res.text());
+  }
+
+  const payload = (await res.json()) as BrandsAllResponse;
+  const rows = Array.isArray(payload.brands) ? payload.brands : [];
+
+  return rows
+    .filter((row) => row.orgId === orgId && typeof row.id === "string")
+    .map((row) => ({
+      brandId: row.id as string,
+      orgId,
+      domain: typeof row.domain === "string" ? row.domain : null,
+      name: typeof row.name === "string" ? row.name : "",
+    }));
+}
+
 /** One offer under a brand, as brand-service serves it. */
 export type BrandOffer = {
   offerId: string;

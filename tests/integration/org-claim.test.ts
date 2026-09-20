@@ -1,12 +1,51 @@
-import { describe, it, expect, beforeEach, afterAll } from "vitest";
+import { describe, it, expect, beforeEach, afterAll, vi } from "vitest";
 import request from "supertest";
 import { eq } from "drizzle-orm";
 import { createTestApp } from "../helpers/test-app.js";
 import { cleanTestData, insertTestOrg, insertTestUser, closeDb, randomId } from "../helpers/test-db.js";
 import { db } from "../../src/db/index.js";
-import { orgs, users } from "../../src/db/schema.js";
+import { orgs, users, invites } from "../../src/db/schema.js";
 
 const API_KEY = "test_api_key";
+
+process.env.BRAND_SERVICE_URL = "http://brand.test";
+process.env.BRAND_SERVICE_API_KEY = "brand_key";
+process.env.STRIPE_SERVICE_URL = "http://stripe.test";
+process.env.STRIPE_SERVICE_API_KEY = "stripe_key";
+
+/** What the rest of the fleet says about the org holding an identity. */
+type Fleet = {
+  brands: Array<{ id: string; orgId: string; domain: string | null; name: string }>;
+  payments: Array<{ currency: string; amount_received: number }>;
+  brandStatus: number;
+  stripeStatus: number;
+};
+
+let fleet: Fleet;
+
+function stubFleet() {
+  fleet = { brands: [], payments: [], brandStatus: 200, stripeStatus: 200 };
+
+  vi.stubGlobal("fetch", async (input: string | URL) => {
+    const url = typeof input === "string" ? input : input.toString();
+
+    if (url.includes("/internal/brands/all")) {
+      if (fleet.brandStatus !== 200) {
+        return new Response("brand-service down", { status: fleet.brandStatus });
+      }
+      return Response.json({ brands: fleet.brands });
+    }
+
+    if (url.includes("/internal/payment_summary/by-org/")) {
+      if (fleet.stripeStatus !== 200) {
+        return new Response("stripe-service down", { status: fleet.stripeStatus });
+      }
+      return Response.json({ totals: fleet.payments });
+    }
+
+    throw new Error(`unexpected fetch: ${url}`);
+  });
+}
 
 /**
  * Claiming is the one transition anonymous -> identified. What it must never do
@@ -18,6 +57,7 @@ describe("POST /internal/orgs/:orgId/claim", () => {
 
   beforeEach(async () => {
     await cleanTestData();
+    stubFleet();
   });
 
   // The db connection is shared across this file; only the last describe closes it.
@@ -133,9 +173,10 @@ describe("POST /internal/orgs/:orgId/claim", () => {
     expect(row.externalId).toBe("org_clerk_first");
   });
 
-  it("refuses an identity another org already uses, distinguishably", async () => {
+  it("refuses an identity a SOMEBODY'S org already uses, distinguishably", async () => {
     const org = await anonymousOrg();
-    await insertTestOrg({ externalId: "org_clerk_taken" });
+    // Somebody else's signed-out walk, on the same identity. Theirs, so untouchable.
+    const theirs = await insertTestOrg({ externalId: "org_clerk_taken", anonymousAt: new Date() });
 
     const res = await request(app)
       .post(`/internal/orgs/${org.id}/claim`)
@@ -147,6 +188,9 @@ describe("POST /internal/orgs/:orgId/claim", () => {
 
     const [row] = await db.select().from(orgs).where(eq(orgs.id, org.id));
     expect(row.claimedAt).toBeNull();
+    const [untouched] = await db.select().from(orgs).where(eq(orgs.id, theirs.id));
+    expect(untouched.externalId).toBe("org_clerk_taken");
+    expect(untouched.absorbedAt).toBeNull();
   });
 
   it("refuses an org that was never a throwaway one, distinguishably", async () => {
@@ -214,6 +258,231 @@ describe("POST /internal/orgs/:orgId/claim", () => {
     const rows = await db.select().from(users).where(eq(users.externalId, "user_clerk_existing"));
     expect(rows).toHaveLength(1);
     expect(rows[0].orgId).toBe(org.id);
+  });
+});
+
+/**
+ * The race that broke every real signup: an authenticated read resolves the
+ * identity the visitor just created, an org comes into being for it, and the
+ * claim that arrives a second later finds its own customer's identity "taken".
+ *
+ * That second row is an artifact of a read, not an organisation anybody decided
+ * on. The claim may take the identity off it — and only off it.
+ */
+describe("POST /internal/orgs/:orgId/claim — an identity held by a shell", () => {
+  const app = createTestApp();
+
+  beforeEach(async () => {
+    await cleanTestData();
+    stubFleet();
+  });
+
+  afterAll(async () => {
+    await cleanTestData();
+    vi.unstubAllGlobals();
+  });
+
+  async function anonymousOrg() {
+    return insertTestOrg({ externalId: `anon-${randomId()}`, anonymousAt: new Date() });
+  }
+
+  /** What `POST /internal/resolve` leaves behind: an org, and the reader in it. */
+  async function shellHolding(externalOrgId: string, externalUserId: string) {
+    const shell = await insertTestOrg({ externalId: externalOrgId, name: "Read artifact" });
+    await insertTestUser({ externalId: externalUserId, orgId: shell.id });
+    return shell;
+  }
+
+  it("gives the customer the org holding their work, and makes them a member of it", async () => {
+    const work = await anonymousOrg();
+    const reader = await insertTestUser({ externalId: "anon_visitor", orgId: work.id });
+    const shell = await shellHolding("org_clerk_race", "user_clerk_race");
+
+    const res = await request(app)
+      .post(`/internal/orgs/${work.id}/claim`)
+      .set("x-api-key", API_KEY)
+      .send({
+        externalOrgId: "org_clerk_race",
+        externalUserId: "user_clerk_race",
+        email: "htkiro@example.com",
+      });
+
+    expect(res.status).toBe(200);
+    expect(res.body.orgId).toBe(work.id);
+    expect(res.body.absorbedOrgId).toBe(shell.id);
+
+    // The identity now resolves to the org that holds the work.
+    const [claimed] = await db.select().from(orgs).where(eq(orgs.id, work.id));
+    expect(claimed.externalId).toBe("org_clerk_race");
+    expect(claimed.claimedAt).not.toBeNull();
+
+    // They are a member of it.
+    const [member] = await db.select().from(users).where(eq(users.externalId, "user_clerk_race"));
+    expect(member.orgId).toBe(work.id);
+    expect(member.id).toBe(res.body.userId);
+
+    // The shell kept its uuid and its rows; it simply stopped answering to an
+    // identity that was never its.
+    const [absorbed] = await db.select().from(orgs).where(eq(orgs.id, shell.id));
+    expect(absorbed.externalId).toBeNull();
+    expect(absorbed.absorbedIntoOrgId).toBe(work.id);
+    expect(absorbed.absorbedAt).not.toBeNull();
+
+    // Nothing that pointed at the claimed org moved.
+    const [stillThere] = await db.select().from(users).where(eq(users.id, reader.id));
+    expect(stillThere.orgId).toBe(work.id);
+  });
+
+  it("is still idempotent: the replay answers success and absorbs nothing twice", async () => {
+    const work = await anonymousOrg();
+    const shell = await shellHolding("org_clerk_replay", "user_clerk_replay");
+    const body = { externalOrgId: "org_clerk_replay", externalUserId: "user_clerk_replay" };
+
+    const first = await request(app)
+      .post(`/internal/orgs/${work.id}/claim`)
+      .set("x-api-key", API_KEY)
+      .send(body);
+    const second = await request(app)
+      .post(`/internal/orgs/${work.id}/claim`)
+      .set("x-api-key", API_KEY)
+      .send(body);
+
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(200);
+    expect(second.body.alreadyClaimed).toBe(true);
+    expect(second.body.claimedAt).toBe(first.body.claimedAt);
+    expect(second.body.absorbedOrgId).toBeUndefined();
+
+    const [absorbed] = await db.select().from(orgs).where(eq(orgs.id, shell.id));
+    expect(absorbed.absorbedIntoOrgId).toBe(work.id);
+  });
+
+  it("refuses when the holder has a member who is not the person signing up", async () => {
+    const work = await anonymousOrg();
+    const holder = await shellHolding("org_clerk_team", "user_clerk_team");
+    await insertTestUser({ externalId: "user_clerk_colleague", orgId: holder.id });
+
+    const res = await request(app)
+      .post(`/internal/orgs/${work.id}/claim`)
+      .set("x-api-key", API_KEY)
+      .send({ externalOrgId: "org_clerk_team", externalUserId: "user_clerk_team" });
+
+    expect(res.status).toBe(409);
+    expect(res.body.reason).toBe("external_id_taken");
+    const [untouched] = await db.select().from(orgs).where(eq(orgs.id, holder.id));
+    expect(untouched.externalId).toBe("org_clerk_team");
+  });
+
+  it("refuses when the holder carries state of its own", async () => {
+    const work = await anonymousOrg();
+    const holder = await shellHolding("org_clerk_invited", "user_clerk_invited");
+    await db.insert(invites).values({
+      inviterOrgId: holder.id,
+      code: `code-${randomId()}`,
+      status: "pending",
+    });
+
+    const res = await request(app)
+      .post(`/internal/orgs/${work.id}/claim`)
+      .set("x-api-key", API_KEY)
+      .send({ externalOrgId: "org_clerk_invited", externalUserId: "user_clerk_invited" });
+
+    expect(res.status).toBe(409);
+    expect(res.body.reason).toBe("external_id_taken");
+  });
+
+  it("refuses when somebody built a brand in the holder", async () => {
+    const work = await anonymousOrg();
+    const holder = await shellHolding("org_clerk_brand", "user_clerk_brand");
+    fleet.brands = [
+      { id: randomId(), orgId: holder.id, domain: "theirs.com", name: "Theirs" },
+    ];
+
+    const res = await request(app)
+      .post(`/internal/orgs/${work.id}/claim`)
+      .set("x-api-key", API_KEY)
+      .send({ externalOrgId: "org_clerk_brand", externalUserId: "user_clerk_brand" });
+
+    expect(res.status).toBe(409);
+    expect(res.body.reason).toBe("external_id_taken");
+  });
+
+  it("refuses when the holder has paid real money in", async () => {
+    const work = await anonymousOrg();
+    await shellHolding("org_clerk_paid", "user_clerk_paid");
+    fleet.payments = [{ currency: "usd", amount_received: 4900 }];
+
+    const res = await request(app)
+      .post(`/internal/orgs/${work.id}/claim`)
+      .set("x-api-key", API_KEY)
+      .send({ externalOrgId: "org_clerk_paid", externalUserId: "user_clerk_paid" });
+
+    expect(res.status).toBe(409);
+    expect(res.body.reason).toBe("external_id_taken");
+  });
+
+  it("refuses an anonymous holder and an already-claimed one, whatever the fleet says", async () => {
+    const work = await anonymousOrg();
+    await insertTestOrg({ externalId: "org_clerk_theirs", anonymousAt: new Date() });
+
+    const anonymousHolder = await request(app)
+      .post(`/internal/orgs/${work.id}/claim`)
+      .set("x-api-key", API_KEY)
+      .send({ externalOrgId: "org_clerk_theirs", externalUserId: "user_clerk_t" });
+
+    expect(anonymousHolder.status).toBe(409);
+    expect(anonymousHolder.body.reason).toBe("external_id_taken");
+
+    const other = await anonymousOrg();
+    await request(app)
+      .post(`/internal/orgs/${other.id}/claim`)
+      .set("x-api-key", API_KEY)
+      .send({ externalOrgId: "org_clerk_mine", externalUserId: "user_clerk_mine" });
+
+    const claimedHolder = await request(app)
+      .post(`/internal/orgs/${work.id}/claim`)
+      .set("x-api-key", API_KEY)
+      .send({ externalOrgId: "org_clerk_mine", externalUserId: "user_clerk_someone" });
+
+    expect(claimedHolder.status).toBe(409);
+    expect(claimedHolder.body.reason).toBe("external_id_taken");
+  });
+
+  it("refuses LOUDLY when it cannot find out whether the holder is empty", async () => {
+    const work = await anonymousOrg();
+    const holder = await shellHolding("org_clerk_unknown", "user_clerk_unknown");
+    fleet.brandStatus = 503;
+
+    const res = await request(app)
+      .post(`/internal/orgs/${work.id}/claim`)
+      .set("x-api-key", API_KEY)
+      .send({ externalOrgId: "org_clerk_unknown", externalUserId: "user_clerk_unknown" });
+
+    expect(res.status).toBe(502);
+    expect(res.body.reason).toBe("identity_holder_unverifiable");
+
+    const [untouched] = await db.select().from(orgs).where(eq(orgs.id, holder.id));
+    expect(untouched.externalId).toBe("org_clerk_unknown");
+    const [unclaimed] = await db.select().from(orgs).where(eq(orgs.id, work.id));
+    expect(unclaimed.claimedAt).toBeNull();
+  });
+
+  it("stops calling a shell real once it has handed its identity over", async () => {
+    const work = await anonymousOrg();
+    const shell = await shellHolding("org_clerk_reality", "user_clerk_reality");
+
+    await request(app)
+      .post(`/internal/orgs/${work.id}/claim`)
+      .set("x-api-key", API_KEY)
+      .send({ externalOrgId: "org_clerk_reality", externalUserId: "user_clerk_reality" });
+
+    const res = await request(app)
+      .post("/internal/orgs/real")
+      .set("x-api-key", API_KEY)
+      .send({ orgIds: [work.id, shell.id] });
+
+    expect(res.status).toBe(200);
+    expect(res.body.realOrgIds).toEqual([work.id]);
   });
 });
 
