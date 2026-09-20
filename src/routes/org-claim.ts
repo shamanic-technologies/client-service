@@ -108,7 +108,7 @@ router.post("/internal/orgs/:orgId/claim", requireApiKey, async (req, res) => {
       const local = await assessHolderLocally(db, preflightHolder, externalUserId);
       if (local.shell) {
         try {
-          const upstream = await assessHolderUpstream(preflightHolder.id);
+          const upstream = await assessHolderUpstream(preflightHolder.id, orgId);
           if (upstream.shell) {
             absorbableHolderId = preflightHolder.id;
           }
