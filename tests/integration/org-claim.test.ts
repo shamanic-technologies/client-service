@@ -391,7 +391,7 @@ describe("POST /internal/orgs/:orgId/claim — an identity held by a shell", () 
     expect(res.body.reason).toBe("external_id_taken");
   });
 
-  it("refuses when somebody built a brand in the holder", async () => {
+  it("refuses when the holder claims a brand of its own", async () => {
     const work = await anonymousOrg();
     const holder = await shellHolding("org_clerk_brand", "user_clerk_brand");
     fleet.brands = [
@@ -402,6 +402,50 @@ describe("POST /internal/orgs/:orgId/claim — an identity held by a shell", () 
       .post(`/internal/orgs/${work.id}/claim`)
       .set("x-api-key", API_KEY)
       .send({ externalOrgId: "org_clerk_brand", externalUserId: "user_clerk_brand" });
+
+    expect(res.status).toBe(409);
+    expect(res.body.reason).toBe("external_id_taken");
+  });
+
+  it("goes through when the holder claims the CUSTOMER'S OWN brand a second time", async () => {
+    // What production does: the dashboard claims the brand the visitor built for
+    // the identity they just created too, so both rows claim the same brand. It
+    // is the same brand and the same person — refusing on it would refuse them
+    // the exact work the claim exists to hand over.
+    const work = await anonymousOrg();
+    const shell = await shellHolding("org_clerk_same_brand", "user_clerk_same_brand");
+    const brandId = randomId();
+    fleet.brands = [
+      { id: brandId, orgId: work.id, domain: "callaireena.com", name: "Aireena" },
+      { id: brandId, orgId: shell.id, domain: "callaireena.com", name: "Aireena" },
+    ];
+
+    const res = await request(app)
+      .post(`/internal/orgs/${work.id}/claim`)
+      .set("x-api-key", API_KEY)
+      .send({ externalOrgId: "org_clerk_same_brand", externalUserId: "user_clerk_same_brand" });
+
+    expect(res.status).toBe(200);
+    expect(res.body.absorbedOrgId).toBe(shell.id);
+
+    const [claimed] = await db.select().from(orgs).where(eq(orgs.id, work.id));
+    expect(claimed.externalId).toBe("org_clerk_same_brand");
+  });
+
+  it("still refuses when the holder ALSO claims a brand the customer does not", async () => {
+    const work = await anonymousOrg();
+    const shell = await shellHolding("org_clerk_extra_brand", "user_clerk_extra_brand");
+    const shared = randomId();
+    fleet.brands = [
+      { id: shared, orgId: work.id, domain: "ours.com", name: "Ours" },
+      { id: shared, orgId: shell.id, domain: "ours.com", name: "Ours" },
+      { id: randomId(), orgId: shell.id, domain: "theirs.com", name: "Theirs" },
+    ];
+
+    const res = await request(app)
+      .post(`/internal/orgs/${work.id}/claim`)
+      .set("x-api-key", API_KEY)
+      .send({ externalOrgId: "org_clerk_extra_brand", externalUserId: "user_clerk_extra_brand" });
 
     expect(res.status).toBe(409);
     expect(res.body.reason).toBe("external_id_taken");

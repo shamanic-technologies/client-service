@@ -8,7 +8,7 @@ import {
   rewardTaskStates,
   rewardTaskCompletions,
 } from "../db/schema.js";
-import { listBrandsClaimedByOrg } from "./brand-service-client.js";
+import { listBrandClaimsForOrgs } from "./brand-service-client.js";
 import { getOrgPaymentTotals } from "./stripe-service-client.js";
 
 /**
@@ -28,8 +28,11 @@ import { getOrgPaymentTotals } from "./stripe-service-client.js";
  *   - it is not already a shell (it has nothing left to give);
  *   - every member it has is the person signing up, and it holds none of our own
  *     org-scoped state (invites, reward ledger);
- *   - it claims no brand and has paid no money in — the two places where "somebody
- *     built something in it" lives outside this service.
+ *   - it claims no brand THE CLAIMING ORG DOES NOT ALSO CLAIM, and it has paid no
+ *     money in — the two places where "somebody built something in it" lives
+ *     outside this service. A brand both rows claim is the customer's own brand,
+ *     claimed a second time for the identity they just created; refusing on that
+ *     would refuse them the very work the claim exists to hand over.
  *
  * Anything else REFUSES, exactly as the claim refuses today. And a check that
  * could not be performed is neither yes nor no: it throws, and the claim answers
@@ -51,7 +54,7 @@ export type HolderKeeps =
   | "holder_already_absorbed"
   | "holder_has_other_members"
   | "holder_has_state"
-  | "holder_claims_a_brand"
+  | "holder_claims_another_brand"
   | "holder_has_paid";
 
 /** The identity-holding org, as far as this service records it. */
@@ -139,7 +142,7 @@ export async function assessHolderLocally(
 }
 
 /**
- * What the rest of the fleet knows: does anybody's work or money sit on the
+ * What the rest of the fleet knows: does anybody ELSE'S work or money sit on the
  * holder? Read live from the services that own each — brand-service owns the
  * brand claim, stripe-service owns the money.
  *
@@ -150,13 +153,27 @@ export async function assessHolderLocally(
  * Fail loud: an upstream that cannot answer throws. "We could not find out" must
  * never read as "nobody built anything here".
  */
-export async function assessHolderUpstream(holderId: string): Promise<HolderAssessment> {
-  const [brands, payments] = await Promise.all([
-    listBrandsClaimedByOrg(holderId),
+export async function assessHolderUpstream(
+  holderId: string,
+  claimingOrgId: string,
+): Promise<HolderAssessment> {
+  const [claims, payments] = await Promise.all([
+    listBrandClaimsForOrgs([holderId, claimingOrgId]),
     getOrgPaymentTotals(holderId),
   ]);
 
-  if (brands.length > 0) return { shell: false, because: "holder_claims_a_brand" };
+  // A brand the claiming org ALSO claims is the customer's own brand under a
+  // second claim edge — the dashboard writes one for the identity they just
+  // created, on the brand they spent the signed-out walk building. Only a brand
+  // that is the holder's ALONE is somebody having built something in it.
+  const claimingOrgBrands = new Set(
+    claims.filter((claim) => claim.orgId === claimingOrgId).map((claim) => claim.brandId),
+  );
+  const holderOnly = claims.filter(
+    (claim) => claim.orgId === holderId && !claimingOrgBrands.has(claim.brandId),
+  );
+
+  if (holderOnly.length > 0) return { shell: false, because: "holder_claims_another_brand" };
   // Gross paid in, never net: a refund does not un-happen a checkout.
   if (payments.some((total) => total.amountReceivedCents > 0)) {
     return { shell: false, because: "holder_has_paid" };
