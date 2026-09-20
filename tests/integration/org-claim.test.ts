@@ -333,6 +333,78 @@ describe("POST /internal/orgs/:orgId/claim — an identity held by a shell", () 
     expect(stillThere.orgId).toBe(work.id);
   });
 
+  it("hands over the SLUG too, so the next authenticated read resolves instead of colliding", async () => {
+    // Exactly what production had on 2026-09-20: a shell holding both halves of
+    // the identity the customer is about to claim.
+    const work = await anonymousOrg();
+    const shell = await insertTestOrg({
+      externalId: "org_clerk_slug",
+      name: "Read artifact",
+      slug: "hany-tawfik-1789921251256263966",
+    });
+    await insertTestUser({ externalId: "user_clerk_slug", orgId: shell.id });
+
+    const claim = await request(app)
+      .post(`/internal/orgs/${work.id}/claim`)
+      .set("x-api-key", API_KEY)
+      .send({
+        externalOrgId: "org_clerk_slug",
+        externalUserId: "user_clerk_slug",
+        orgSlug: "hany-tawfik-1789921251256263966",
+      });
+
+    expect(claim.status).toBe(200);
+    expect(claim.body.absorbedOrgId).toBe(shell.id);
+
+    // Nothing of the identity is left on the shell.
+    const [absorbed] = await db.select().from(orgs).where(eq(orgs.id, shell.id));
+    expect(absorbed.externalId).toBeNull();
+    expect(absorbed.slug).toBeNull();
+
+    const [claimed] = await db.select().from(orgs).where(eq(orgs.id, work.id));
+    expect(claimed.slug).toBe("hany-tawfik-1789921251256263966");
+
+    // The very next authenticated read. It used to 500 on idx_orgs_slug.
+    const resolved = await request(app)
+      .post("/internal/resolve")
+      .set("x-api-key", API_KEY)
+      .send({
+        externalOrgId: "org_clerk_slug",
+        externalUserId: "user_clerk_slug",
+        orgSlug: "hany-tawfik-1789921251256263966",
+      });
+
+    expect(resolved.status).toBe(200);
+    expect(resolved.body.orgId).toBe(work.id);
+  });
+
+  it("refuses a slug held by somebody's org as a NAME being taken, never as the identity", async () => {
+    const work = await anonymousOrg();
+    const somebody = await insertTestOrg({
+      externalId: "org_clerk_other",
+      name: "Somebody else",
+      slug: "taken-slug",
+    });
+
+    const res = await request(app)
+      .post(`/internal/orgs/${work.id}/claim`)
+      .set("x-api-key", API_KEY)
+      .send({
+        externalOrgId: "org_clerk_fresh",
+        externalUserId: "user_clerk_fresh",
+        orgSlug: "taken-slug",
+      });
+
+    expect(res.status).toBe(409);
+    expect(res.body.reason).toBe("org_slug_taken");
+
+    // Nothing moved: the refusal is a refusal.
+    const [untouched] = await db.select().from(orgs).where(eq(orgs.id, somebody.id));
+    expect(untouched.slug).toBe("taken-slug");
+    const [unclaimed] = await db.select().from(orgs).where(eq(orgs.id, work.id));
+    expect(unclaimed.claimedAt).toBeNull();
+  });
+
   it("is still idempotent: the replay answers success and absorbs nothing twice", async () => {
     const work = await anonymousOrg();
     const shell = await shellHolding("org_clerk_replay", "user_clerk_replay");
