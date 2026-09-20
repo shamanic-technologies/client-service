@@ -23,6 +23,20 @@ export const orgs = pgTable(
      * claim of the same identity a replay rather than a takeover.
      */
     claimedAt: timestamp("claimed_at", { withTimezone: true }),
+    /**
+     * This row is a SHELL. It came into being purely as the side effect of an
+     * authenticated read resolving an identity, it was never declared anonymous
+     * and never claimed, and it held nothing but the person who had just signed
+     * up — so the claim took its identity and gave it to the org that holds the
+     * customer's work. This names that org.
+     *
+     * Written ONLY by the claim, and only after the emptiness is CHECKED (local
+     * membership and state here, brands and money at their owning services). A
+     * shell keeps its uuid and its rows: absorbing is not a delete.
+     */
+    absorbedIntoOrgId: uuid("absorbed_into_org_id"),
+    /** When the identity was handed over. NULL for every org that is not a shell. */
+    absorbedAt: timestamp("absorbed_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -32,6 +46,15 @@ export const orgs = pgTable(
     check(
       "orgs_claimed_requires_anonymous",
       sql`${table.claimedAt} IS NULL OR ${table.anonymousAt} IS NOT NULL`,
+    ),
+    check(
+      "orgs_absorbed_both_or_neither",
+      sql`(${table.absorbedAt} IS NULL) = (${table.absorbedIntoOrgId} IS NULL)`,
+    ),
+    // A shell holds no identity: that is exactly what it gave away.
+    check(
+      "orgs_absorbed_has_no_identity",
+      sql`${table.absorbedAt} IS NULL OR ${table.externalId} IS NULL`,
     ),
   ]
 );

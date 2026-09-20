@@ -200,6 +200,10 @@ const OrgClaimResponseSchema = z
       description:
         "true when this exact claim had already been made — a retried signup or a replayed request. The answer is the same either way; nothing is created twice.",
     }),
+    absorbedOrgId: z.string().uuid().optional().openapi({
+      description:
+        "Present only when a SHELL org was already holding this identity — a row brought into being purely as the side effect of an authenticated read, never declared anonymous, never claimed, holding nothing but the person signing up. It handed the identity over and kept its own uuid and rows. Absent in every other case.",
+    }),
   })
   .openapi("OrgClaimResponse");
 
@@ -211,6 +215,7 @@ const OrgClaimRefusalSchema = z
       "org_not_anonymous",
       "org_already_claimed",
       "external_id_taken",
+      "identity_holder_unverifiable",
       "invalid_request",
       "internal_error",
     ]),
@@ -235,7 +240,7 @@ const OrgRealityResponseSchema = z
   .object({
     realOrgIds: z.array(z.string().uuid()).openapi({
       description:
-        "The subset of the submitted ids that name a REAL organisation. Ids that are anonymous-and-unclaimed, and ids that name no org at all, are absent.",
+        "The subset of the submitted ids that name a REAL organisation. Ids that are anonymous-and-unclaimed, ids naming a shell that handed its identity to another org, and ids that name no org at all, are absent.",
     }),
   })
   .openapi("OrgRealityResponse");
