@@ -12,10 +12,13 @@ const router = Router();
  *
  * Which of these organisations are REAL?
  *
- * REAL = anything that is not an anonymous org still awaiting a claim. An org
- * that was never anonymous is real; an anonymous one that has since been
- * claimed is real (the person signed up, the org is theirs); an anonymous one
- * with no claim is an abandoned signed-out walk and is NOT real.
+ * REAL = anything that is not an anonymous org still awaiting a claim, and not a
+ * shell. An org that was never anonymous is real; an anonymous one that has
+ * since been claimed is real (the person signed up, the org is theirs); an
+ * anonymous one with no claim is an abandoned signed-out walk and is NOT real;
+ * a shell — a row a read brought into being, which has since handed its identity
+ * to the org holding the customer's work — is NOT real, because it was never a
+ * decision in the first place.
  *
  * Both halves of that come from columns this service WRITES — `anonymous_at`
  * at creation on the caller's declaration, `claimed_at` at the claim — never
@@ -51,6 +54,11 @@ router.post("/internal/orgs/real", requireApiKey, async (req, res) => {
       .where(
         and(
           inArray(orgs.id, unique),
+          // A SHELL is not real either: it came into being as the side effect of
+          // a read and has since handed its identity to the org that holds the
+          // customer's work. Saying it were real would contradict the claim that
+          // emptied it.
+          isNull(orgs.absorbedAt),
           or(isNull(orgs.anonymousAt), isNotNull(orgs.claimedAt)),
         ),
       );
