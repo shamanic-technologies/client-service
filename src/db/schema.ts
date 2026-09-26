@@ -237,6 +237,47 @@ export const rewardTaskCompletions = pgTable(
   ]
 );
 
+/**
+ * FIRST TOUCH — which acquisition channel brought this org. One row per org,
+ * written once and never updated: the first hand-over wins and every later one
+ * is ignored, so a second visit can never move the credit.
+ *
+ * Keyed on the internal uuid, which a claim never changes, so an anonymous org
+ * keeps the touch recorded before its claim. No row = we never recorded
+ * anything (every org older than this table); "direct" / "unknown" are real
+ * answers the dashboard sends. Every column is untrusted browser-derived text.
+ */
+export const orgAcquisitions = pgTable(
+  "org_acquisitions",
+  {
+    orgId: uuid("org_id")
+      .primaryKey()
+      .references(() => orgs.id, { onDelete: "cascade" }),
+    channel: text("channel").notNull(),
+    utmSource: text("utm_source"),
+    utmMedium: text("utm_medium"),
+    utmCampaign: text("utm_campaign"),
+    utmContent: text("utm_content"),
+    utmTerm: text("utm_term"),
+    referrer: text("referrer"),
+    landingPath: text("landing_path"),
+    homepageVariant: text("homepage_variant"),
+    gclid: text("gclid"),
+    referralCode: text("referral_code"),
+    /** When the browser says it first saw the visitor. Untrusted, kept as stated. */
+    firstSeenAt: timestamp("first_seen_at", { withTimezone: true }),
+    /** Which hand-over recorded it. `absorbed_shell`: moved off a shell at claim. */
+    recordedVia: text("recorded_via").notNull(),
+    recordedAt: timestamp("recorded_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  () => [
+    check(
+      "org_acquisitions_recorded_via_check",
+      sql`recorded_via IN ('resolve', 'org_id', 'external_ids', 'absorbed_shell')`,
+    ),
+  ]
+);
+
 export const waitlist = pgTable("waitlist", {
   id: uuid("id").primaryKey().defaultRandom(),
   email: text("email").notNull().unique(),
@@ -254,5 +295,6 @@ export type NewInvite = typeof invites.$inferInsert;
 export type RewardFunnelObservation = typeof rewardFunnelObservations.$inferSelect;
 export type RewardTaskState = typeof rewardTaskStates.$inferSelect;
 export type RewardTaskCompletion = typeof rewardTaskCompletions.$inferSelect;
+export type OrgAcquisition = typeof orgAcquisitions.$inferSelect;
 export type Waitlist = typeof waitlist.$inferSelect;
 export type NewWaitlist = typeof waitlist.$inferInsert;

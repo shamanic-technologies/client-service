@@ -7,12 +7,14 @@ import {
   rewardFunnelObservations,
   rewardTaskStates,
   rewardTaskCompletions,
+  orgAcquisitions,
 } from "../../src/db/schema.js";
 
 /**
  * Clean all test data from the database
  */
 export async function cleanTestData() {
+  await db.delete(orgAcquisitions);
   await db.delete(rewardTaskCompletions);
   await db.delete(rewardTaskStates);
   await db.delete(rewardFunnelObservations);
