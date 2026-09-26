@@ -4,7 +4,7 @@ import {
   orgs,
   users,
   invites,
-  rewardFunnelObservations,
+  rewardOfferObservations,
   rewardTaskStates,
   rewardTaskCompletions,
 } from "../db/schema.js";
@@ -129,7 +129,7 @@ export async function assessHolderLocally(
 
   if (state) return { shell: false, because: "holder_has_state" };
 
-  for (const table of [rewardTaskStates, rewardTaskCompletions, rewardFunnelObservations]) {
+  for (const table of [rewardTaskStates, rewardTaskCompletions, rewardOfferObservations]) {
     const [row] = await executor
       .select({ found: sql<number>`1` })
       .from(table)

@@ -44,7 +44,7 @@ function violatedConstraint(error: unknown): string | null {
  * The signup wall sits at the END of onboarding: a visitor walks their whole
  * setup signed out, against an ORDINARY org whose external identity is a
  * throwaway id. When they finally sign up they get a real identity-provider
- * organisation, and everything they built — brands, funnels, audiences, runs,
+ * organisation, and everything they built — brands, offers, audiences, runs,
  * spend, across five services — is on the throwaway one.
  *
  * This says, once, that the two are the same organisation. The internal uuid is

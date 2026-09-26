@@ -116,52 +116,44 @@ export const invites = pgTable(
 );
 
 /**
- * BRONZE — what brand-service actually served us for one sales funnel, verbatim,
- * at the moment its money content differed from the last thing we stored.
+ * BRONZE — what brand-service actually served us for one OFFER's money content
+ * (its lifetime revenue plus the brand's stated leg rates), verbatim, at the
+ * moment that content differed from the last thing we stored.
  *
  * An identical re-read carries no new information and is not appended: the
- * dashboard re-reads the task list on every funnel page load, so appending every
+ * dashboard re-reads the task list on every offer page load, so appending every
  * HTTP response would make this a log of our own traffic rather than of the
  * customer's numbers. What lands here is therefore the change log of the
  * content, which is exactly the evidence a completion is judged on.
  */
-export const rewardFunnelObservations = pgTable(
-  "reward_funnel_observations",
+export const rewardOfferObservations = pgTable(
+  "reward_offer_observations",
   {
     id: uuid("id").primaryKey().defaultRandom(),
     orgId: uuid("org_id").notNull(),
     brandId: uuid("brand_id").notNull(),
     offerId: uuid("offer_id").notNull(),
-    funnelKey: text("funnel_key").notNull(),
     /**
-     * sha256 over the MONEY CONTENT only — rates, arrows, lifetime revenue,
-     * destination and booking links. `active` and the producer's `updatedAt` are
-     * deliberately excluded: switching a funnel off and back on moves both and
-     * changes not one number the customer was asked to refresh.
+     * sha256 over the MONEY CONTENT only — the offer's lifetime revenue and the
+     * brand's STATED leg rates. The producer's `statedAt` timestamps are
+     * deliberately excluded: re-saving an unchanged number moves them and
+     * changes nothing the customer was asked to refresh.
      */
     contentFingerprint: text("content_fingerprint").notNull(),
-    /** The funnel object brand-service served, verbatim. */
+    /** The offer + leg rates brand-service served, verbatim. */
     payload: jsonb("payload").notNull(),
-    /**
-     * The producer's own last-touched timestamp, kept for forensics. NOT a
-     * confirmation signal: a toggle moves it with nobody having looked at a number.
-     */
-    producerUpdatedAt: timestamp("producer_updated_at", { withTimezone: true }),
+    /** The latest producer `statedAt` for this content. Forensics only, never a confirmation. */
+    producerStatedAt: timestamp("producer_stated_at", { withTimezone: true }),
     observedAt: timestamp("observed_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
-    index("idx_reward_funnel_obs_funnel").on(
-      table.orgId,
-      table.offerId,
-      table.funnelKey,
-      table.observedAt,
-    ),
+    index("idx_reward_offer_obs_offer").on(table.orgId, table.offerId, table.observedAt),
   ]
 );
 
 /**
- * SILVER — one canonical row per (org, offer, funnel, task): the fingerprint we
- * last saw, WHEN the money content last genuinely changed, and how we know that.
+ * SILVER — one canonical row per (org, offer, task): the fingerprint we last
+ * saw, WHEN the money content last genuinely changed, and how we know that.
  */
 export const rewardTaskStates = pgTable(
   "reward_task_states",
@@ -170,29 +162,29 @@ export const rewardTaskStates = pgTable(
     orgId: uuid("org_id").notNull(),
     brandId: uuid("brand_id").notNull(),
     offerId: uuid("offer_id").notNull(),
-    funnelKey: text("funnel_key").notNull(),
     taskKey: text("task_key").notNull(),
-    contentFingerprint: text("content_fingerprint").notNull(),
+    /**
+     * NULL only on a clock carried over from the retired sales-funnel grain
+     * (migration 0016): the old fingerprint was over a different shape and
+     * cannot be compared. The first read adopts one without completing anything.
+     */
+    contentFingerprint: text("content_fingerprint"),
     /** When the money content last genuinely changed — the clock the 30 days run from. */
     contentChangedAt: timestamp("content_changed_at", { withTimezone: true }).notNull(),
     /**
      * `observed`: we compared two readings and they differed. Ours, certain.
      * `producer_ts`: first sighting, so the best anchor available was the
-     * producer's own updatedAt. That is an UPPER bound on the real change time
-     * (a toggle only ever moves it later), so the task comes due no EARLIER than
-     * it should — we never invent an earlier date to pay sooner.
+     * producer's own latest `statedAt`. That is an UPPER bound on the real change
+     * time (re-saving an unchanged number only ever moves it later), so the task
+     * comes due no EARLIER than it should — we never invent an earlier date to
+     * pay sooner.
      */
     contentChangedProvenance: text("content_changed_provenance").notNull(),
     firstObservedAt: timestamp("first_observed_at", { withTimezone: true }).notNull().defaultNow(),
     lastObservedAt: timestamp("last_observed_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
-    uniqueIndex("idx_reward_task_states_scope").on(
-      table.orgId,
-      table.offerId,
-      table.funnelKey,
-      table.taskKey,
-    ),
+    uniqueIndex("idx_reward_task_states_offer").on(table.orgId, table.offerId, table.taskKey),
     index("idx_reward_task_states_brand").on(table.orgId, table.brandId),
     check(
       "reward_task_states_provenance_check",
@@ -292,7 +284,7 @@ export type Org = typeof orgs.$inferSelect;
 export type NewOrg = typeof orgs.$inferInsert;
 export type Invite = typeof invites.$inferSelect;
 export type NewInvite = typeof invites.$inferInsert;
-export type RewardFunnelObservation = typeof rewardFunnelObservations.$inferSelect;
+export type RewardOfferObservation = typeof rewardOfferObservations.$inferSelect;
 export type RewardTaskState = typeof rewardTaskStates.$inferSelect;
 export type RewardTaskCompletion = typeof rewardTaskCompletions.$inferSelect;
 export type OrgAcquisition = typeof orgAcquisitions.$inferSelect;
