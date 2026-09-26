@@ -113,6 +113,13 @@
       "when": 1780502400000,
       "tag": "0015_org_acquisitions",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1780588800000,
+      "tag": "0016_reward_ledger_offer_grain",
+      "breakpoints": true
     }
   ]
 }

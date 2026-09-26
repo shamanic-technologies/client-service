@@ -4,7 +4,7 @@ import {
   users,
   invites,
   waitlist,
-  rewardFunnelObservations,
+  rewardOfferObservations,
   rewardTaskStates,
   rewardTaskCompletions,
   orgAcquisitions,
@@ -17,7 +17,7 @@ export async function cleanTestData() {
   await db.delete(orgAcquisitions);
   await db.delete(rewardTaskCompletions);
   await db.delete(rewardTaskStates);
-  await db.delete(rewardFunnelObservations);
+  await db.delete(rewardOfferObservations);
   await db.delete(invites);
   await db.delete(waitlist);
   await db.delete(users);
