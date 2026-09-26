@@ -3,7 +3,7 @@ import { requireApiKey } from "../middleware/auth.js";
 import { BrandRewardTasksParamsSchema, BrandRewardTasksHeadersSchema } from "../schemas.js";
 import {
   resolveBrandRewardTasks,
-  FunnelTimestampMissingError,
+  StatedAtMissingError,
   RewardScopeAmbiguousError,
 } from "../lib/reward-tasks.js";
 import { BillingServiceError } from "../lib/billing-service-client.js";
@@ -14,12 +14,12 @@ const router = Router();
 /**
  * GET /internal/brands/:brandId/reward-tasks
  *
- * The reward tasks of this brand's sales funnels: which exist, whether each is
+ * The reward tasks of this brand's offers: which exist, whether each is
  * DUE, since when, and when each was last DONE — plus a rollup so a superior
  * scope can state how many of its children have something due without restating
  * their tasks.
  *
- * This read OBSERVES. There is no background job: the customer is on the funnel's
+ * This read OBSERVES. There is no background job: the customer is on the offer's
  * page when they save their numbers and the dashboard re-reads this immediately
  * after, so the read that matters always happens, and a sweep nobody reads would
  * be worse than none. A refresh that completes a task is paid inside this call.
@@ -60,7 +60,7 @@ router.get("/internal/brands/:brandId/reward-tasks", requireApiKey, async (req, 
     if (
       error instanceof BrandServiceError ||
       error instanceof BillingServiceError ||
-      error instanceof FunnelTimestampMissingError
+      error instanceof StatedAtMissingError
     ) {
       console.error("[client-service] Reward tasks upstream error:", error.message);
       return res.status(502).json({ error: error.message });

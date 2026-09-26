@@ -109,33 +109,35 @@ export async function listBrandClaimsForOrgs(orgIds: string[]): Promise<BrandOrg
     }));
 }
 
-/** One offer under a brand, as brand-service serves it. */
-export type BrandOffer = {
-  offerId: string;
-  brandId: string;
-  name: string;
+/**
+ * One leg rate of a brand, as brand-service serves it. Rates are stated per
+ * (org, brand, leg) and shared by every offer of the brand. An unstated leg reads
+ * `ratePct: null, stated: false` — never a zero, never a default.
+ */
+export type BrandLegRate = {
+  fromStep: string;
+  toStep: string;
+  ratePct: number | null;
+  stated: boolean;
+  /** When this rate was last written. Also moves on an unchanged re-save. */
+  statedAt: string | null;
 };
 
-/**
- * One ACTIVE sales funnel of an offer, as brand-service serves it.
- *
- * Only the fields the reward ledger reasons about are typed. `updatedAt` is kept
- * because it is the only anchor available the FIRST time we ever see a funnel —
- * but it is never treated as a confirmation that anybody refreshed anything: it
- * also moves when a funnel is merely switched off or back on.
- */
-export type OfferSalesFunnel = {
-  funnelKey: string;
+/** One offer of a brand with its lifetime revenue, as brand-service serves it. */
+export type OfferLifetimeRevenue = {
+  offerId: string;
   name: string;
-  active: boolean;
-  rates: Record<string, number | null>;
-  arrows: Array<Record<string, unknown>>;
+  /** What a paying client of this offer is worth, USD. `null` = never stated. */
   lifetimeRevenueUsd: number | null;
-  destinationUrl: string | null;
-  bookingUrl: string | null;
-  updatedAt: string | null;
-  /** Everything brand-service served for this funnel, kept verbatim for bronze. */
+  lifetimeRevenueStatedAt: string | null;
+  /** Everything brand-service served for this offer, kept verbatim for bronze. */
   raw: Record<string, unknown>;
+};
+
+/** A brand's money economics: its leg rates and every offer's lifetime revenue. */
+export type BrandOfferEconomics = {
+  legRates: BrandLegRate[];
+  offers: OfferLifetimeRevenue[];
 };
 
 function brandServiceConfig(): { baseUrl: string; apiKey: string } {
@@ -151,22 +153,27 @@ function brandServiceConfig(): { baseUrl: string; apiKey: string } {
 }
 
 /**
- * List the offers under a brand, via `GET /internal/brands/{brandId}/offers`.
+ * Read a brand's money economics for one org, via
+ * `GET /internal/brands/{brandId}/offer-economics`: the brand's leg rates (the
+ * brand grain, shared by every offer) and each offer's lifetime revenue.
  *
  * The org is passed explicitly: brand-service resolves it itself only when
  * exactly one org claims the brand, and we already know which org we are asking
- * about. An unclaimed brand answers 200 with an empty list — not an error.
+ * about. This read is deterministic and triggers no enrichment — a reward-status
+ * read must never cost money.
  *
- * This read is deterministic and triggers no enrichment. We deliberately do NOT
- * reach for `GET /internal/brands/{id}`, which lazy-fills the brand name through
- * a platform-billed LLM extraction: a reward-status read must never cost money.
+ * Nothing is defaulted upstream — a value the brand never stated reads `null`,
+ * which never means zero — and we pass those nulls straight through.
  *
  * Fail loud: any non-2xx throws BrandServiceError.
  */
-export async function listBrandOffers(brandId: string, orgId: string): Promise<BrandOffer[]> {
+export async function readBrandOfferEconomics(
+  brandId: string,
+  orgId: string,
+): Promise<BrandOfferEconomics> {
   const { baseUrl, apiKey } = brandServiceConfig();
 
-  const url = `${baseUrl}/internal/brands/${encodeURIComponent(brandId)}/offers`;
+  const url = `${baseUrl}/internal/brands/${encodeURIComponent(brandId)}/offer-economics`;
   const res = await fetchWithRetry(url, {
     headers: { "x-api-key": apiKey, "x-org-id": orgId },
   });
@@ -175,60 +182,34 @@ export async function listBrandOffers(brandId: string, orgId: string): Promise<B
     throw new BrandServiceError(res.status, await res.text());
   }
 
-  const payload = (await res.json()) as {
-    offers?: Array<{ offerId?: unknown; brandId?: unknown; name?: unknown }>;
+  const payload = (await res.json()) as { legRates?: unknown; offers?: unknown };
+  const legRows = Array.isArray(payload.legRates)
+    ? (payload.legRates as Record<string, unknown>[])
+    : [];
+  const offerRows = Array.isArray(payload.offers)
+    ? (payload.offers as Record<string, unknown>[])
+    : [];
+
+  return {
+    legRates: legRows
+      .filter((row) => typeof row.fromStep === "string" && typeof row.toStep === "string")
+      .map((row) => ({
+        fromStep: row.fromStep as string,
+        toStep: row.toStep as string,
+        ratePct: typeof row.ratePct === "number" ? row.ratePct : null,
+        stated: row.stated === true,
+        statedAt: typeof row.statedAt === "string" ? row.statedAt : null,
+      })),
+    offers: offerRows
+      .filter((row) => typeof row.offerId === "string")
+      .map((row) => ({
+        offerId: row.offerId as string,
+        name: typeof row.name === "string" ? row.name : "",
+        lifetimeRevenueUsd:
+          typeof row.lifetimeRevenueUsd === "number" ? row.lifetimeRevenueUsd : null,
+        lifetimeRevenueStatedAt:
+          typeof row.lifetimeRevenueStatedAt === "string" ? row.lifetimeRevenueStatedAt : null,
+        raw: row,
+      })),
   };
-  const rows = Array.isArray(payload.offers) ? payload.offers : [];
-
-  return rows
-    .filter((row) => typeof row.offerId === "string")
-    .map((row) => ({
-      offerId: row.offerId as string,
-      brandId: typeof row.brandId === "string" ? row.brandId : brandId,
-      name: typeof row.name === "string" ? row.name : "",
-    }));
-}
-
-/**
- * List one offer's ACTIVE sales funnels, via
- * `GET /internal/offers/{offerId}/sales-funnels`.
- *
- * brand-service never lists a funnel that is switched off, so a funnel simply
- * DISAPPEARS from this read while it is inactive and reappears unchanged when it
- * is switched back on. The ledger treats a disappearance as nothing at all: it
- * neither completes a task nor resets a clock.
- *
- * Nothing is defaulted upstream — a value the brand never declared reads `null`,
- * which never means zero — and we pass those nulls straight through.
- *
- * Fail loud: any non-2xx throws BrandServiceError.
- */
-export async function listOfferSalesFunnels(offerId: string): Promise<OfferSalesFunnel[]> {
-  const { baseUrl, apiKey } = brandServiceConfig();
-
-  const url = `${baseUrl}/internal/offers/${encodeURIComponent(offerId)}/sales-funnels`;
-  const res = await fetchWithRetry(url, { headers: { "x-api-key": apiKey } });
-
-  if (!res.ok) {
-    throw new BrandServiceError(res.status, await res.text());
-  }
-
-  const payload = (await res.json()) as { funnels?: unknown };
-  const rows = Array.isArray(payload.funnels) ? (payload.funnels as Record<string, unknown>[]) : [];
-
-  return rows
-    .filter((row) => typeof row.funnelKey === "string")
-    .map((row) => ({
-      funnelKey: row.funnelKey as string,
-      name: typeof row.name === "string" ? row.name : "",
-      active: row.active === true,
-      rates: (row.rates ?? {}) as Record<string, number | null>,
-      arrows: Array.isArray(row.arrows) ? (row.arrows as Array<Record<string, unknown>>) : [],
-      lifetimeRevenueUsd:
-        typeof row.lifetimeRevenueUsd === "number" ? row.lifetimeRevenueUsd : null,
-      destinationUrl: typeof row.destinationUrl === "string" ? row.destinationUrl : null,
-      bookingUrl: typeof row.bookingUrl === "string" ? row.bookingUrl : null,
-      updatedAt: typeof row.updatedAt === "string" ? row.updatedAt : null,
-      raw: row,
-    }));
 }

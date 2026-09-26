@@ -71,8 +71,7 @@ describe("DELETE /internal/orgs/:orgId (cascade teardown)", () => {
         orgId: org.id,
         brandId: randomId(),
         offerId: randomId(),
-        funnelKey: "website_purchases",
-        taskKey: "sales_funnel_refresh",
+        taskKey: "offer_economics_refresh",
         contentFingerprint: "fp",
         contentChangedAt: new Date(),
         contentChangedProvenance: "observed",
@@ -81,7 +80,7 @@ describe("DELETE /internal/orgs/:orgId (cascade teardown)", () => {
     await db.insert(rewardTaskCompletions).values({
       rewardTaskStateId: state.id,
       orgId: org.id,
-      taskKey: "sales_funnel_refresh",
+      taskKey: "offer_economics_refresh",
       dueAt: new Date(),
       rewardCents: 100,
       billingNotifiedAt: new Date(),

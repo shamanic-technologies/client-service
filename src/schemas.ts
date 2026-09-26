@@ -200,7 +200,7 @@ export const OrgClaimParamsSchema = z
   .object({
     orgId: z.string().uuid().openapi({
       description:
-        "The internal uuid of the anonymous org — the one every brand, funnel, audience, run and cost was written against while the visitor was signed out. It does not change; only the external identity does.",
+        "The internal uuid of the anonymous org — the one every brand, offer, audience, run and cost was written against while the visitor was signed out. It does not change; only the external identity does.",
     }),
   })
   .openapi("OrgClaimParams");
@@ -430,23 +430,20 @@ export const BrandRewardTasksHeadersSchema = z
 
 const RewardTaskScopeSchema = z
   .object({
-    type: z.literal("sales_funnel").openapi({
+    type: z.literal("offer").openapi({
       description:
-        "The granularity the task belongs to. The first reward task lives on ONE sales funnel of one offer of one brand.",
+        "The granularity the task belongs to. The reward task lives on ONE offer of one brand.",
     }),
     brandId: z.string().uuid(),
     offerId: z.string().uuid(),
-    funnelKey: z.string().openapi({
-      description: "brand-service's funnel key, e.g. `website_purchases`.",
-    }),
   })
   .openapi("RewardTaskScope");
 
 const RewardTaskSchema = z
   .object({
-    taskKey: z.literal("sales_funnel_refresh").openapi({
+    taskKey: z.literal("offer_economics_refresh").openapi({
       description:
-        "Refresh this funnel's own money numbers: its conversion rates, the lifetime revenue of a client won through it, and where it sends people. Every money figure the product shows this customer is computed from them, so stale inputs make every one of them quietly wrong.",
+        "Refresh this offer's money numbers: the lifetime revenue of a client won through it, and the brand's conversion rate on each leg (stated once per brand, shared by its offers). Every money figure the product shows this customer is computed from them, so stale inputs make every one of them quietly wrong.",
     }),
     scope: RewardTaskScopeSchema,
     rewardCents: z.number().int().openapi({
@@ -464,11 +461,11 @@ const RewardTaskSchema = z
       description: "How many times this task has been completed and paid, ever.",
     }),
     contentChangedAt: z.string().openapi({
-      description: "When this funnel's money content last genuinely changed. The clock the 30 days run from.",
+      description: "When this offer's money content last genuinely changed. The clock the 30 days run from.",
     }),
     contentChangedProvenance: z.enum(["observed", "producer_ts"]).openapi({
       description:
-        "`observed`: we compared two readings of the numbers and they differed — ours, certain. `producer_ts`: the first time we ever saw this funnel, so the baseline is brand-service's own last-touched timestamp. That timestamp also moves when a funnel is merely switched off or on, so it is an UPPER bound on the real change time: the task comes due no EARLIER than it should, never sooner.",
+        "`observed`: we compared two readings of the numbers and they differed — ours, certain. `producer_ts`: the first time we ever saw this offer's numbers, so the baseline is brand-service's own latest `statedAt` across them. That timestamp also moves when an unchanged number is saved again, so it is an UPPER bound on the real change time: the task comes due no EARLIER than it should, never sooner.",
     }),
   })
   .openapi("RewardTask");
@@ -493,7 +490,7 @@ export const BrandRewardTasksResponseSchema = z
     rewardCentsPerTask: z.number().int(),
     tasks: z.array(RewardTaskSchema).openapi({
       description:
-        "One entry per CURRENTLY ACTIVE sales funnel of this brand. A funnel switched off is not listed: nobody can refresh numbers on a funnel that is off. Its refresh clock is kept, so switching it back on does not reset anything.",
+        "One entry per offer of this brand whose money content has been stated (a lifetime revenue, or any leg rate of the brand). An offer with nothing stated has nothing that can go stale and no instant to start a clock from, so it is not listed until a number is stated.",
     }),
     rollup: z
       .object({
@@ -824,7 +821,7 @@ registry.registerPath({
   path: "/internal/orgs/{orgId}/claim",
   summary: "An org that came into being without an identity provider now has one",
   description:
-    "The signup wall sits at the END of onboarding. A visitor types their website and walks their entire setup — services, funnels, audiences, conversion rates, offer — signed out, and only then creates an account and pays. That signed-out phase is an ORDINARY organisation: one whose external identity is a throwaway id the dashboard mints instead of an identity-provider id. Brands, funnels, audiences, runs and spend are all written against it exactly as for any customer, because it IS an org.\n\nAt signup the visitor gets a brand-new identity-provider organisation, and everything they built is on the throwaway one. This endpoint says, once, that the two are the same organisation. The internal uuid is UNTOUCHED, so every reference taken before the call still resolves; only the external identity is swapped underneath it. Nothing is copied: there is no cross-service migration on the signup path, and therefore no failure mode that loses a customer's work right after they paid.\n\nIDEMPOTENT. Replaying the exact same claim re-attaches the same person and answers 200 with `alreadyClaimed: true`. A retried signup, or a browser that replays the request, produces neither a second organisation nor an error the customer sees.\n\nIT REFUSES RATHER THAN GUESSES, and each refusal carries its own `reason` so the caller can show the customer a different thing for each: `org_not_found`, `org_not_anonymous` (this org was never a throwaway one), `org_already_claimed` (it already carries a different identity), `external_id_taken` (that identity belongs to another org), `org_slug_taken` (only the identity's slug belongs to another org — a name, not the identity). Anonymity is a fact we RECORDED when the org was created (`anonymous: true` on /internal/resolve), never something inferred by inspecting what the external id looks like — a wrong guess would hand a stranger an organisation.\n\nThis is NOT an org-merge or org-transfer facility. It is the one transition anonymous -> identified, and that narrowness is what makes it safe.",
+    "The signup wall sits at the END of onboarding. A visitor types their website and walks their entire setup — services, offers, audiences, conversion rates — signed out, and only then creates an account and pays. That signed-out phase is an ORDINARY organisation: one whose external identity is a throwaway id the dashboard mints instead of an identity-provider id. Brands, offers, audiences, runs and spend are all written against it exactly as for any customer, because it IS an org.\n\nAt signup the visitor gets a brand-new identity-provider organisation, and everything they built is on the throwaway one. This endpoint says, once, that the two are the same organisation. The internal uuid is UNTOUCHED, so every reference taken before the call still resolves; only the external identity is swapped underneath it. Nothing is copied: there is no cross-service migration on the signup path, and therefore no failure mode that loses a customer's work right after they paid.\n\nIDEMPOTENT. Replaying the exact same claim re-attaches the same person and answers 200 with `alreadyClaimed: true`. A retried signup, or a browser that replays the request, produces neither a second organisation nor an error the customer sees.\n\nIT REFUSES RATHER THAN GUESSES, and each refusal carries its own `reason` so the caller can show the customer a different thing for each: `org_not_found`, `org_not_anonymous` (this org was never a throwaway one), `org_already_claimed` (it already carries a different identity), `external_id_taken` (that identity belongs to another org), `org_slug_taken` (only the identity's slug belongs to another org — a name, not the identity). Anonymity is a fact we RECORDED when the org was created (`anonymous: true` on /internal/resolve), never something inferred by inspecting what the external id looks like — a wrong guess would hand a stranger an organisation.\n\nThis is NOT an org-merge or org-transfer facility. It is the one transition anonymous -> identified, and that narrowness is what makes it safe.",
   security: [{ ApiKeyAuth: [] }],
   request: {
     params: OrgClaimParamsSchema,
@@ -867,7 +864,7 @@ registry.registerPath({
   path: "/internal/orgs/real",
   summary: "Which of these organisations are real ones?",
   description:
-    "An organisation can come into being WITHOUT an identity provider: the signed-out phase of onboarding mints one before anything else exists, and brands, funnels and audiences are written against it exactly as for any customer. Nearly every such walk is abandoned, and the org then stays anonymous and unclaimed forever — a ghost with no person, no signup and no payment behind it.\n\nThis endpoint tells a caller which of the orgs it already holds are REAL. REAL means anything that is not an anonymous org still awaiting a claim: an ordinary org that was never anonymous is real, and an anonymous org that HAS since been claimed is real, because somebody signed up and it is theirs.\n\nBoth facts are recorded by this service — anonymity at creation, on the caller's declaration (`anonymous: true` on /internal/resolve), and the claim at POST /internal/orgs/{orgId}/claim. Neither is ever inferred from what an external org id looks like: the record exists precisely so nobody has to read a prefix, and a wrong guess would hand a stranger an organisation.\n\nThe answer carries NOTHING about an org beyond its id. The caller is typically acting on behalf of a visitor with no account, so no name, external identity or timestamp crosses the boundary — and an id naming no org is simply absent from the answer rather than distinguished, which is the same verdict (nobody real owns it) and leaks nothing about whether the id exists.\n\nFAIL LOUD. A read that could not be performed is a 500, never an empty list: a caller must be able to tell 'none of these are real' from 'we could not find out', or a real customer's domain could be handed away on a defaulted answer.",
+    "An organisation can come into being WITHOUT an identity provider: the signed-out phase of onboarding mints one before anything else exists, and brands, offers and audiences are written against it exactly as for any customer. Nearly every such walk is abandoned, and the org then stays anonymous and unclaimed forever — a ghost with no person, no signup and no payment behind it.\n\nThis endpoint tells a caller which of the orgs it already holds are REAL. REAL means anything that is not an anonymous org still awaiting a claim: an ordinary org that was never anonymous is real, and an anonymous org that HAS since been claimed is real, because somebody signed up and it is theirs.\n\nBoth facts are recorded by this service — anonymity at creation, on the caller's declaration (`anonymous: true` on /internal/resolve), and the claim at POST /internal/orgs/{orgId}/claim. Neither is ever inferred from what an external org id looks like: the record exists precisely so nobody has to read a prefix, and a wrong guess would hand a stranger an organisation.\n\nThe answer carries NOTHING about an org beyond its id. The caller is typically acting on behalf of a visitor with no account, so no name, external identity or timestamp crosses the boundary — and an id naming no org is simply absent from the answer rather than distinguished, which is the same verdict (nobody real owns it) and leaks nothing about whether the id exists.\n\nFAIL LOUD. A read that could not be performed is a 500, never an empty list: a caller must be able to tell 'none of these are real' from 'we could not find out', or a real customer's domain could be handed away on a defaulted answer.",
   security: [{ ApiKeyAuth: [] }],
   request: {
     body: {
@@ -1356,9 +1353,9 @@ registry.registerPath({
 registry.registerPath({
   method: "get",
   path: "/internal/brands/{brandId}/reward-tasks",
-  summary: "The reward tasks of this brand's sales funnels: what is due, since when, and when it was last done",
+  summary: "The reward tasks of this brand's offers: what is due, since when, and when it was last done",
   description:
-    "client-service owns the customer's reward-task ledger, because it is the identity root and nothing else in the fleet remembers this. The ledger is layered: BRONZE is what brand-service actually served us for a funnel, SILVER is the canonical per-task state derived from it, GOLD is the view this endpoint answers from.\n\nThe first granularity is the SALES FUNNEL and the first task is `sales_funnel_refresh`. A funnel's own money numbers — its conversion rates, the lifetime revenue of a client won through it, its destination and booking links — go stale, and every money figure the product shows that customer is computed from them, so we ask for a refresh roughly every 30 days. Completing one pays the customer $1.\n\nHOW A REAL REFRESH IS TOLD FROM A NO-OP. brand-service serves a last-touched timestamp with those numbers, but it is NOT a confirmation: it also moves when a funnel is merely switched off or back on, with nobody having looked at a single number. So a completion is judged on the money CONTENT itself — a fingerprint over the rates, the lifetime revenue and the links, with `active` and the timestamp deliberately excluded. Switching a funnel off and on again therefore completes nothing and pays nothing.\n\nTHIS READ OBSERVES, and there is no background job. The customer is on the funnel's page when they save their numbers and the dashboard re-reads this immediately after, so the read that matters always happens; a sweep nobody reads would be worse than none. A refresh that completes a task is paid inside this call — client-service tells billing-service, on the request path, and writes its delivery marker only once billing acknowledges, so a failed notification retries on the next call and a repeat never pays twice. client-service grants no credit and opens no promise: the money is billing's.\n\nFail loud everywhere: an upstream that could not answer is a 502, never a defaulted 'nothing is due'.",
+    "client-service owns the customer's reward-task ledger, because it is the identity root and nothing else in the fleet remembers this. The ledger is layered: BRONZE is what brand-service actually served us for an offer's money content, SILVER is the canonical per-task state derived from it, GOLD is the view this endpoint answers from.\n\nThe granularity is the OFFER and the task is `offer_economics_refresh`. An offer's money numbers — the lifetime revenue of a client won through it, and the brand's conversion rate on each leg (stated per brand, shared by its offers), both read from brand-service's offer economics — go stale, and every money figure the product shows that customer is computed from them, so we ask for a refresh roughly every 30 days. Completing one pays the customer $1.\n\nHOW A REAL REFRESH IS TOLD FROM A NO-OP. brand-service serves a `statedAt` with those numbers, but it is NOT a confirmation: it also moves when an unchanged number is saved again. So a completion is judged on the money CONTENT itself — a fingerprint over the lifetime revenue and the stated leg rates, with timestamps and unstated legs deliberately excluded.\n\nTHIS READ OBSERVES, and there is no background job. The customer is on the offer's page when they save their numbers and the dashboard re-reads this immediately after, so the read that matters always happens; a sweep nobody reads would be worse than none. A refresh that completes a task is paid inside this call — client-service tells billing-service, on the request path, and writes its delivery marker only once billing acknowledges, so a failed notification retries on the next call and a repeat never pays twice. client-service grants no credit and opens no promise: the money is billing's.\n\nFail loud everywhere: an upstream that could not answer is a 502, never a defaulted 'nothing is due'.",
   security: [{ ApiKeyAuth: [] }],
   request: {
     params: BrandRewardTasksParamsSchema,
@@ -1366,7 +1363,7 @@ registry.registerPath({
   },
   responses: {
     200: {
-      description: "This brand's sales-funnel reward tasks, with per-offer and per-brand due counts",
+      description: "This brand's offer reward tasks, with per-offer and per-brand due counts",
       content: { "application/json": { schema: BrandRewardTasksResponseSchema } },
     },
     400: {
@@ -1380,7 +1377,7 @@ registry.registerPath({
     },
     502: {
       description:
-        "An upstream owner failed: brand-service could not serve the offers or funnels, or billing-service could not be told about a completion. Never a partial or defaulted answer — a completion that billing has not acknowledged stays undelivered and retries.",
+        "An upstream owner failed: brand-service could not serve the offer economics (or served a stated number with no statedAt), or billing-service could not be told about a completion. Never a partial or defaulted answer — a completion that billing has not acknowledged stays undelivered and retries.",
       content: { "application/json": { schema: ErrorResponseSchema } },
     },
     500: {

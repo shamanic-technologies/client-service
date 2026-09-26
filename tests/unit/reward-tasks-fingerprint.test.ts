@@ -1,100 +1,121 @@
 import { describe, it, expect } from "vitest";
-import { fingerprintFunnelContent } from "../../src/lib/reward-tasks.js";
-import type { OfferSalesFunnel } from "../../src/lib/brand-service-client.js";
+import {
+  fingerprintOfferContent,
+  latestStatedAt,
+  StatedAtMissingError,
+} from "../../src/lib/reward-tasks.js";
+import type { BrandLegRate, OfferLifetimeRevenue } from "../../src/lib/brand-service-client.js";
 
 /**
- * The whole reward ledger rests on one discrimination: a real refresh of a
- * funnel's money numbers versus a no-op touch. brand-service's own last-touched
- * timestamp cannot make it — a toggle moves that with nobody having looked at a
- * number — so the fingerprint below is what makes it instead.
+ * The whole reward ledger rests on one discrimination: a real refresh of an
+ * offer's money numbers versus a no-op touch. brand-service's own `statedAt`
+ * cannot make it — an unchanged number saved again moves it with nobody having
+ * changed anything — so the fingerprint below is what makes it instead.
  */
 
-function funnel(overrides: Partial<OfferSalesFunnel> = {}): OfferSalesFunnel {
-  const base: OfferSalesFunnel = {
-    funnelKey: "website_purchases",
-    name: "Website purchases",
-    active: true,
-    rates: { visit_to_signup: 4.2, signup_to_paid: 11 },
-    arrows: [
-      { fromStep: "website_visit", toStep: "signup", ratePct: 4.2, provenance: "stated_arrow", rateKey: "visit_to_signup" },
-    ],
+function offer(overrides: Partial<OfferLifetimeRevenue> = {}): OfferLifetimeRevenue {
+  return {
+    offerId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+    name: "Self serve",
     lifetimeRevenueUsd: 4900,
-    destinationUrl: "https://acme.test/pricing",
-    bookingUrl: null,
-    updatedAt: "2026-08-01T10:00:00.000Z",
+    lifetimeRevenueStatedAt: "2026-08-01 10:00:00+00",
     raw: {},
+    ...overrides,
   };
-  return { ...base, ...overrides };
 }
 
-describe("fingerprintFunnelContent", () => {
+function leg(overrides: Partial<BrandLegRate> = {}): BrandLegRate {
+  return {
+    fromStep: "Website visit",
+    toStep: "Signup",
+    ratePct: 4.2,
+    stated: true,
+    statedAt: "2026-08-01 10:00:00+00",
+    ...overrides,
+  };
+}
+
+const LEGS = [leg(), leg({ fromStep: "Signup", toStep: "Paid client", ratePct: 11 })];
+const UNSTATED = leg({ fromStep: "Positive reply", toStep: "Paid client", ratePct: null, stated: false, statedAt: null });
+
+describe("fingerprintOfferContent", () => {
   it("is stable across two readings of identical numbers", () => {
-    expect(fingerprintFunnelContent(funnel())).toBe(fingerprintFunnelContent(funnel()));
+    expect(fingerprintOfferContent(offer(), LEGS)).toBe(fingerprintOfferContent(offer(), LEGS));
   });
 
-  it("ignores the producer's last-touched timestamp", () => {
-    // The timestamp moves on a mere toggle. If it fed the fingerprint, switching
-    // a funnel off and back on would complete the task and pay for it.
-    expect(fingerprintFunnelContent(funnel({ updatedAt: "2026-09-17T09:00:00.000Z" }))).toBe(
-      fingerprintFunnelContent(funnel()),
+  it("ignores the producer's statedAt — an unchanged re-save is not a refresh", () => {
+    expect(
+      fingerprintOfferContent(offer({ lifetimeRevenueStatedAt: "2026-09-26 09:00:00+00" }), [
+        leg({ statedAt: "2026-09-26 09:00:00+00" }),
+        LEGS[1],
+      ]),
+    ).toBe(fingerprintOfferContent(offer(), LEGS));
+  });
+
+  it("ignores a rename — renaming an offer refreshes no number", () => {
+    expect(fingerprintOfferContent(offer({ name: "Enterprise" }), LEGS)).toBe(
+      fingerprintOfferContent(offer(), LEGS),
     );
   });
 
-  it("ignores whether the funnel is switched on", () => {
-    expect(fingerprintFunnelContent(funnel({ active: false }))).toBe(
-      fingerprintFunnelContent(funnel()),
+  it("ignores an unstated leg, so a leg brand-service newly learns is not a refresh", () => {
+    expect(fingerprintOfferContent(offer(), [...LEGS, UNSTATED])).toBe(
+      fingerprintOfferContent(offer(), LEGS),
     );
   });
 
-  it("ignores a rename — renaming a funnel refreshes no number", () => {
-    expect(fingerprintFunnelContent(funnel({ name: "Self-serve checkout" }))).toBe(
-      fingerprintFunnelContent(funnel()),
+  it("does not depend on the order the producer served the legs in", () => {
+    expect(fingerprintOfferContent(offer(), [...LEGS].reverse())).toBe(
+      fingerprintOfferContent(offer(), LEGS),
     );
   });
 
-  it("changes when a conversion rate changes", () => {
-    expect(fingerprintFunnelContent(funnel({ rates: { visit_to_signup: 5.1, signup_to_paid: 11 } }))).not.toBe(
-      fingerprintFunnelContent(funnel()),
+  it("changes when a leg's conversion rate changes", () => {
+    expect(fingerprintOfferContent(offer(), [leg({ ratePct: 5.1 }), LEGS[1]])).not.toBe(
+      fingerprintOfferContent(offer(), LEGS),
     );
   });
 
-  it("changes when a step's stated arrow rate changes", () => {
-    const edited = funnel({
-      arrows: [
-        { fromStep: "website_visit", toStep: "signup", ratePct: 6, provenance: "stated_arrow", rateKey: "visit_to_signup" },
-      ],
-    });
-    expect(fingerprintFunnelContent(edited)).not.toBe(fingerprintFunnelContent(funnel()));
+  it("changes when a leg is stated for the first time", () => {
+    expect(
+      fingerprintOfferContent(offer(), [...LEGS, { ...UNSTATED, ratePct: 3, stated: true, statedAt: "2026-09-26 09:00:00+00" }]),
+    ).not.toBe(fingerprintOfferContent(offer(), LEGS));
   });
 
   it("changes when the lifetime revenue of a won client changes", () => {
-    expect(fingerprintFunnelContent(funnel({ lifetimeRevenueUsd: 6200 }))).not.toBe(
-      fingerprintFunnelContent(funnel()),
+    expect(fingerprintOfferContent(offer({ lifetimeRevenueUsd: 6200 }), LEGS)).not.toBe(
+      fingerprintOfferContent(offer(), LEGS),
     );
-  });
-
-  it("changes when the booking link is set for the first time", () => {
-    expect(fingerprintFunnelContent(funnel({ bookingUrl: "https://cal.test/acme" }))).not.toBe(
-      fingerprintFunnelContent(funnel()),
-    );
-  });
-
-  it("changes when the destination the outreach click lands on changes", () => {
-    expect(fingerprintFunnelContent(funnel({ destinationUrl: "https://acme.test/offer" }))).not.toBe(
-      fingerprintFunnelContent(funnel()),
-    );
-  });
-
-  it("does not depend on the key order the producer happened to serve", () => {
-    const reordered = funnel({ rates: { signup_to_paid: 11, visit_to_signup: 4.2 } });
-    expect(fingerprintFunnelContent(reordered)).toBe(fingerprintFunnelContent(funnel()));
   });
 
   it("tells a null apart from a zero", () => {
-    // Nothing upstream is defaulted: a value the brand never declared reads null,
+    // Nothing upstream is defaulted: a value the brand never stated reads null,
     // which never means zero. Stating a real zero IS a refresh.
-    expect(fingerprintFunnelContent(funnel({ lifetimeRevenueUsd: 0 }))).not.toBe(
-      fingerprintFunnelContent(funnel({ lifetimeRevenueUsd: null })),
+    expect(fingerprintOfferContent(offer({ lifetimeRevenueUsd: 0 }), LEGS)).not.toBe(
+      fingerprintOfferContent(offer({ lifetimeRevenueUsd: null, lifetimeRevenueStatedAt: null }), LEGS),
+    );
+  });
+});
+
+describe("latestStatedAt", () => {
+  it("is the latest instant across the offer's stated numbers, parsed from Postgres form", () => {
+    expect(
+      latestStatedAt(offer(), [leg({ statedAt: "2026-09-25 07:03:47.40352+00" }), UNSTATED]),
+    ).toBe("2026-09-25T07:03:47.403Z");
+  });
+
+  it("is null when nothing is stated at all — no instant to start a clock from", () => {
+    expect(
+      latestStatedAt(offer({ lifetimeRevenueUsd: null, lifetimeRevenueStatedAt: null }), [UNSTATED]),
+    ).toBeNull();
+  });
+
+  it("refuses a stated number with no usable statedAt rather than inventing one", () => {
+    expect(() => latestStatedAt(offer({ lifetimeRevenueStatedAt: null }), [])).toThrow(
+      StatedAtMissingError,
+    );
+    expect(() => latestStatedAt(offer(), [leg({ statedAt: "not a date" })])).toThrow(
+      StatedAtMissingError,
     );
   });
 });
