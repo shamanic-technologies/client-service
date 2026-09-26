@@ -164,9 +164,9 @@ export const rewardTaskStates = pgTable(
     offerId: uuid("offer_id").notNull(),
     taskKey: text("task_key").notNull(),
     /**
-     * NULL only on a clock carried over from the retired sales-funnel grain
-     * (migration 0016): the old fingerprint was over a different shape and
-     * cannot be compared. The first read adopts one without completing anything.
+     * NULL when a migration changed the fingerprint's SHAPE (0016: clock
+     * carried over from the retired sales-funnel grain; 0017: links added). The
+     * first read adopts one without completing anything.
      */
     contentFingerprint: text("content_fingerprint"),
     /** When the money content last genuinely changed — the clock the 30 days run from. */

@@ -125,9 +125,10 @@ function statedLegs(legRates: readonly BrandLegRate[]): BrandLegRate[] {
 }
 
 /**
- * Fingerprint the MONEY CONTENT of an offer — the numbers the customer is asked
- * to refresh, and nothing else: the offer's lifetime revenue and the brand's
- * STATED leg rates.
+ * Fingerprint the MONEY CONTENT of an offer — the numbers and links the customer
+ * is asked to refresh, and nothing else: the offer's lifetime revenue, where it
+ * sends people (booking link, click destination), and the brand's STATED leg
+ * rates.
  *
  * `statedAt` is deliberately absent: re-saving an unchanged number moves it, so
  * including it would let a no-op save complete the task and pay for it. Unstated
@@ -136,7 +137,7 @@ function statedLegs(legRates: readonly BrandLegRate[]): BrandLegRate[] {
  * having touched a number. `name` is absent: renaming an offer refreshes nothing.
  */
 export function fingerprintOfferContent(
-  offer: Pick<OfferLifetimeRevenue, "lifetimeRevenueUsd">,
+  offer: Pick<OfferLifetimeRevenue, "lifetimeRevenueUsd" | "bookingUrl" | "destinationUrl">,
   legRates: readonly BrandLegRate[],
 ): string {
   const legs = statedLegs(legRates)
@@ -146,7 +147,12 @@ export function fingerprintOfferContent(
         ? a.toStep.localeCompare(b.toStep)
         : a.fromStep.localeCompare(b.fromStep),
     );
-  const content = canonical({ lifetimeRevenueUsd: offer.lifetimeRevenueUsd, legRates: legs });
+  const content = canonical({
+    lifetimeRevenueUsd: offer.lifetimeRevenueUsd,
+    bookingUrl: offer.bookingUrl,
+    destinationUrl: offer.destinationUrl,
+    legRates: legs,
+  });
   return createHash("sha256").update(JSON.stringify(content)).digest("hex");
 }
 
@@ -253,10 +259,10 @@ async function observeOffer(params: {
       return;
     }
 
-    // CARRIED CLOCK. Migration 0016 moved this offer's clock over from the
-    // retired sales-funnel grain with no fingerprint, because the old one was
-    // over a different shape. Adopt the current content as the baseline and keep
-    // the clock: the change of SHAPE is not a refresh and must not pay.
+    // CARRIED CLOCK. A migration reset this fingerprint because its SHAPE
+    // changed (0016: carried over from the retired sales-funnel grain; 0017: the
+    // links joined the content). Adopt the current content as the baseline and
+    // keep the clock: a change of shape is not a refresh and must not pay.
     if (state.content_fingerprint === null) {
       await tx.execute(sql`
         UPDATE reward_task_states
