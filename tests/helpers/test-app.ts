@@ -12,6 +12,7 @@ import rewardTasksRoutes from "../../src/routes/reward-tasks.js";
 import statsRoutes from "../../src/routes/stats.js";
 import invitesRoutes from "../../src/routes/invites.js";
 import waitlistRoutes from "../../src/routes/waitlist.js";
+import acquisitionsRoutes from "../../src/routes/acquisitions.js";
 
 /**
  * Create a test Express app instance with all routes
@@ -34,6 +35,7 @@ export function createTestApp() {
   app.use(statsRoutes);
   app.use(invitesRoutes);
   app.use(waitlistRoutes);
+  app.use(acquisitionsRoutes);
 
   // 404 handler
   app.use((req, res) => {

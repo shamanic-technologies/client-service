@@ -25,6 +25,35 @@ const HealthResponseSchema = z
   })
   .openapi("HealthResponse");
 
+// --- Acquisition input (first touch; used by resolve and /internal/acquisitions) ---
+
+const optionalText = (max: number) => z.string().max(max).nullish();
+
+export const AcquisitionSchema = z
+  .object({
+    channel: z.string().min(1).max(64).openapi({
+      description:
+        "The channel the dashboard derived, e.g. newsletter, cold_email, paid_search, organic_search, ai_assistant, social, partner, referral, direct, unknown. Free text (no enum), so a channel added later is stored rather than refused. `direct` (no referrer/utm) and `unknown` (no capture at all) are real answers, distinct from an org that has no record.",
+    }),
+    utmSource: optionalText(512),
+    utmMedium: optionalText(512),
+    utmCampaign: optionalText(512),
+    utmContent: optionalText(512),
+    utmTerm: optionalText(512),
+    referrer: optionalText(2048).openapi({ description: "External referrer URL." }),
+    landingPath: optionalText(2048).openapi({ description: "Path of the first page landed on." }),
+    homepageVariant: optionalText(128).openapi({ description: "Homepage A/B variant shown." }),
+    gclid: optionalText(512).openapi({ description: "Google Ads click id, when the visit came from an ad click." }),
+    referralCode: optionalText(256).openapi({ description: "Partner / referral link code, when the visit came from one." }),
+    firstSeenAt: z.string().datetime({ offset: true }).nullish().openapi({
+      description: "When the browser first saw the visitor. Untrusted, stored as stated.",
+    }),
+  })
+  .openapi("Acquisition", {
+    description:
+      "An org's first touch, handed over from a browser-derived cookie. Every field is untrusted text, bounded in length; only `channel` is required. Unknown keys are dropped.",
+  });
+
 // --- Resolve ---
 
 export const ResolveBodySchema = z
@@ -37,6 +66,10 @@ export const ResolveBodySchema = z
     imageUrl: z.string().url().optional(),
     orgName: z.string().optional(),
     orgSlug: z.string().min(1).optional(),
+    acquisition: AcquisitionSchema.optional().openapi({
+      description:
+        "The org's FIRST TOUCH, if the caller knows it. Recorded only when the org has none yet; ignored otherwise, so a later resolve can never move the credit. Same shape as POST /internal/acquisitions.",
+    }),
     anonymous: z.boolean().optional().openapi({
       description:
         "This org is coming into being WITHOUT an identity provider — the signed-out phase of onboarding, where the caller mints `externalOrgId` itself. Recorded on the row we CREATE and never re-derived afterwards, because it is what decides whether the org may later be claimed by a real identity. An existing org keeps whatever it already is: a real organisation can never be re-labelled anonymous by a later resolve.",
@@ -245,6 +278,138 @@ const OrgRealityResponseSchema = z
     }),
   })
   .openapi("OrgRealityResponse");
+
+// --- Acquisition (first touch) ---
+
+const StoredAcquisitionSchema = z
+  .object({
+    channel: z.string(),
+    utmSource: z.string().nullable(),
+    utmMedium: z.string().nullable(),
+    utmCampaign: z.string().nullable(),
+    utmContent: z.string().nullable(),
+    utmTerm: z.string().nullable(),
+    referrer: z.string().nullable(),
+    landingPath: z.string().nullable(),
+    homepageVariant: z.string().nullable(),
+    gclid: z.string().nullable(),
+    referralCode: z.string().nullable(),
+    firstSeenAt: z.string().nullable(),
+    recordedVia: z.enum(["resolve", "org_id", "external_ids", "absorbed_shell"]).openapi({
+      description:
+        "Which hand-over recorded it. `absorbed_shell`: recorded on a shell org by an ordinary-signup hand-over, then moved to the org it was absorbed into at claim.",
+    }),
+    recordedAt: z.string(),
+  })
+  .openapi("StoredAcquisition");
+
+export const RecordAcquisitionBodySchema = z
+  .union([
+    z.object({
+      orgId: z.string().uuid().openapi({ description: "Internal org uuid (e.g. the one /internal/resolve returned for an anonymous org)." }),
+      acquisition: AcquisitionSchema,
+    }),
+    z.object({
+      externalOrgId: z.string().min(1).openapi({ description: "Identity-provider (Clerk) org id." }),
+      externalUserId: z.string().min(1).openapi({ description: "Identity-provider (Clerk) user id." }),
+      acquisition: AcquisitionSchema,
+    }),
+  ])
+  .openapi("RecordAcquisitionBody");
+
+const RecordAcquisitionResponseSchema = z
+  .object({
+    orgId: z.string().uuid(),
+    recorded: z.boolean().openapi({
+      description: "true if THIS call wrote the first touch; false if the org already had one (the call is accepted and ignored).",
+    }),
+    acquisition: StoredAcquisitionSchema.openapi({ description: "The org's first touch as stored — the winner, whichever call wrote it." }),
+  })
+  .openapi("RecordAcquisitionResponse");
+
+export const OrgAcquisitionParamsSchema = z.object({ orgId: z.string().uuid() });
+
+const OrgAcquisitionResponseSchema = z
+  .object({
+    orgId: z.string().uuid(),
+    acquisition: StoredAcquisitionSchema.nullable().openapi({
+      description: "null = nothing was ever recorded for this org (every org older than first-touch capture). Never defaulted.",
+    }),
+  })
+  .openapi("OrgAcquisitionResponse");
+
+export const ListAcquisitionsQuerySchema = z
+  .object({
+    createdAfter: z.string().datetime({ offset: true }).openapi({ description: "Orgs created at or after this instant." }),
+    createdBefore: z.string().datetime({ offset: true }).optional().openapi({ description: "Orgs created strictly before this instant." }),
+  })
+  .openapi("ListAcquisitionsQuery");
+
+const ListAcquisitionsResponseSchema = z
+  .object({
+    orgs: z.array(
+      z.object({
+        orgId: z.string().uuid(),
+        name: z.string().nullable(),
+        createdAt: z.string(),
+        anonymous: z.boolean().openapi({ description: "Came into being without an identity provider (signed-out onboarding)." }),
+        claimedAt: z.string().nullable().openapi({ description: "When an anonymous org was claimed at signup." }),
+        real: z.boolean().openapi({
+          description: "Same definition as POST /internal/orgs/real: not an anonymous org still awaiting a claim. Split signups on this.",
+        }),
+        acquisition: StoredAcquisitionSchema.nullable(),
+      }),
+    ),
+  })
+  .openapi("ListAcquisitionsResponse");
+
+registry.registerPath({
+  method: "post",
+  path: "/internal/acquisitions",
+  summary: "Hand over an org's first touch (recorded once, never overwritten)",
+  description:
+    "Records which acquisition channel brought an org. Address the org EITHER by internal uuid (`orgId`, e.g. an anonymous org from /internal/resolve) OR by identity-provider ids (`externalOrgId` + `externalUserId`, an ordinary signup) — the latter resolves the org exactly like /internal/resolve, creating it if it does not exist yet.\n\nFIRST TOUCH WINS. The first hand-over for an org is stored; every later one answers 200 with `recorded: false` and the stored touch, and changes nothing. An anonymous org that is later claimed keeps the touch recorded while it was anonymous: the claim preserves the uuid, and the ordinary-signup hand-over that follows (addressed by the Clerk ids, which now resolve to the same org) is ignored. If an ordinary-signup hand-over landed on a shell before the claim absorbed it, the touch moves to the claiming org only when that org has none.\n\nThe payload is untrusted browser-derived text: every field is length-bounded (400 when exceeded), only `channel` is required.",
+  security: [{ ApiKeyAuth: [] }],
+  request: { body: { content: { "application/json": { schema: RecordAcquisitionBodySchema } } } },
+  responses: {
+    200: { description: "Accepted. `recorded` says whether this call wrote it.", content: { "application/json": { schema: RecordAcquisitionResponseSchema } } },
+    400: { description: "Body invalid (unknown org address shape, field over its bound, bad timestamp)", content: { "application/json": { schema: ErrorResponseSchema } } },
+    401: { description: "Unauthorized", content: { "application/json": { schema: ErrorResponseSchema } } },
+    404: { description: "`orgId` names no org", content: { "application/json": { schema: ErrorResponseSchema } } },
+    500: { description: "Write failed", content: { "application/json": { schema: ErrorResponseSchema } } },
+  },
+});
+
+registry.registerPath({
+  method: "get",
+  path: "/internal/orgs/{orgId}/acquisition",
+  summary: "Read one org's first touch",
+  description: "`acquisition: null` means nothing was ever recorded for this org — distinct from a recorded `direct` or `unknown` channel.",
+  security: [{ ApiKeyAuth: [] }],
+  request: { params: OrgAcquisitionParamsSchema },
+  responses: {
+    200: { description: "The org's first touch, or null", content: { "application/json": { schema: OrgAcquisitionResponseSchema } } },
+    400: { description: "orgId is not a uuid", content: { "application/json": { schema: ErrorResponseSchema } } },
+    401: { description: "Unauthorized", content: { "application/json": { schema: ErrorResponseSchema } } },
+    404: { description: "No such org", content: { "application/json": { schema: ErrorResponseSchema } } },
+  },
+});
+
+registry.registerPath({
+  method: "get",
+  path: "/internal/acquisitions",
+  summary: "List orgs created in a window, each with its first touch",
+  description:
+    "Every org created in [createdAfter, createdBefore), newest first, with its first touch (null when never recorded). Shells — rows that handed their identity to another org at claim — are excluded: they were never a signup. Anonymous orgs still awaiting a claim ARE included, flagged `real: false`, so a consumer can count signed-out starts and signups separately. Join payments on `orgId`.",
+  security: [{ ApiKeyAuth: [] }],
+  request: { query: ListAcquisitionsQuerySchema },
+  responses: {
+    200: { description: "Orgs with their first touch", content: { "application/json": { schema: ListAcquisitionsResponseSchema } } },
+    400: { description: "Missing or invalid createdAfter / createdBefore", content: { "application/json": { schema: ErrorResponseSchema } } },
+    401: { description: "Unauthorized", content: { "application/json": { schema: ErrorResponseSchema } } },
+    500: { description: "Read failed", content: { "application/json": { schema: ErrorResponseSchema } } },
+  },
+});
 
 // --- Reward tasks (bronze / silver / gold ledger) ---
 

@@ -1,9 +1,9 @@
 import { Router } from "express";
-import { sql } from "drizzle-orm";
 import { db } from "../db/index.js";
-import { users, orgs } from "../db/schema.js";
 import { requireApiKey } from "../middleware/auth.js";
 import { ResolveBodySchema } from "../schemas.js";
+import { resolveIdentity } from "../lib/resolve-identity.js";
+import { recordFirstTouch } from "../lib/acquisition.js";
 
 const router = Router();
 
@@ -11,9 +11,9 @@ const router = Router();
  * POST /internal/resolve - Resolve external IDs to internal UUIDs
  * Idempotent: creates org/user if they don't exist, returns existing if they do.
  *
- * orgSlug, when supplied, is set on the org row only when the existing slug
- * is NULL (self-healing backfill from upstream Clerk org slug). Pre-existing
- * slugs are never overwritten — Clerk slugs are immutable per org.
+ * `acquisition`, when supplied, is the org's FIRST TOUCH. It is recorded only if
+ * the org has none yet; a later resolve carrying another one is ignored, so a
+ * second visit can never move the credit.
  */
 router.post("/internal/resolve", requireApiKey, async (req, res) => {
   try {
@@ -22,58 +22,12 @@ router.post("/internal/resolve", requireApiKey, async (req, res) => {
       return res.status(400).json({ error: "Invalid request body", details: parsed.error.flatten() });
     }
 
-    const { externalOrgId, externalUserId, email, firstName, lastName, imageUrl, orgName, orgSlug, anonymous } = parsed.data;
+    const { acquisition, ...identity } = parsed.data;
+    const { org, user, orgCreated, userCreated } = await resolveIdentity(identity);
 
-    // `anonymous` marks an org that comes into being WITHOUT an identity
-    // provider: the signed-out phase of onboarding, where the dashboard mints
-    // the external id itself. It is recorded ONLY on the row we create, and on
-    // the caller's declaration — the marker is what POST /internal/orgs/:orgId/claim
-    // later checks, and it must never be re-derived by looking at the id.
-    // On conflict the existing row keeps whatever it already says it is: a real
-    // Clerk org can never be re-labelled anonymous by a later resolve.
-    const orgInsertData = {
-      externalId: externalOrgId,
-      ...(orgName !== undefined && { name: orgName }),
-      ...(orgSlug !== undefined && { slug: orgSlug }),
-      ...(anonymous === true && { anonymousAt: new Date() }),
-    };
-
-    const orgUpdateSet: Record<string, unknown> = {
-      ...(orgName !== undefined && { name: orgName }),
-      updatedAt: new Date(),
-    };
-    if (orgSlug !== undefined) {
-      orgUpdateSet.slug = sql`COALESCE(${orgs.slug}, ${orgSlug})`;
+    if (acquisition !== undefined) {
+      await recordFirstTouch(db, org.id, acquisition, "resolve");
     }
-
-    const [org] = await db
-      .insert(orgs)
-      .values(orgInsertData)
-      .onConflictDoUpdate({
-        target: [orgs.externalId],
-        set: orgUpdateSet,
-      })
-      .returning();
-
-    const orgCreated = org.createdAt.getTime() === org.updatedAt.getTime();
-
-    const profileData = {
-      ...(email !== undefined && { email }),
-      ...(firstName !== undefined && { firstName }),
-      ...(lastName !== undefined && { lastName }),
-      ...(imageUrl !== undefined && { imageUrl }),
-    };
-
-    const [user] = await db
-      .insert(users)
-      .values({ externalId: externalUserId, orgId: org.id, ...profileData })
-      .onConflictDoUpdate({
-        target: [users.externalId],
-        set: { ...profileData, orgId: org.id, updatedAt: new Date() },
-      })
-      .returning();
-
-    const userCreated = user.createdAt.getTime() === user.updatedAt.getTime();
 
     return res.json({
       orgId: org.id,

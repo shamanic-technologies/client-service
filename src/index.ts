@@ -20,6 +20,7 @@ import rewardTasksRoutes from "./routes/reward-tasks.js";
 import statsRoutes from "./routes/stats.js";
 import invitesRoutes from "./routes/invites.js";
 import waitlistRoutes from "./routes/waitlist.js";
+import acquisitionsRoutes from "./routes/acquisitions.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -63,6 +64,7 @@ app.use(rewardTasksRoutes);
 app.use(statsRoutes);
 app.use(invitesRoutes);
 app.use(waitlistRoutes);
+app.use(acquisitionsRoutes);
 
 // 404 handler
 app.use((req, res) => {

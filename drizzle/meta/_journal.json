@@ -106,6 +106,13 @@
       "when": 1780416000001,
       "tag": "0014_absorbed_releases_slug",
       "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1780502400000,
+      "tag": "0015_org_acquisitions",
+      "breakpoints": true
     }
   ]
 }

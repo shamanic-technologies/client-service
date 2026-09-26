@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { and, eq, ne } from "drizzle-orm";
+import { and, eq, ne, sql } from "drizzle-orm";
 import { db } from "../db/index.js";
 import { orgs, users } from "../db/schema.js";
 import { requireApiKey } from "../middleware/auth.js";
@@ -225,6 +225,19 @@ router.post("/internal/orgs/:orgId/claim", requireApiKey, async (req, res) => {
           .where(eq(orgs.id, holder.id));
 
         absorbedOrgId = holder.id;
+
+        // The first touch follows the person, not the row. If the shell was
+        // handed one (an ordinary-signup hand-over that landed before this
+        // claim) and the claiming org has none, it moves across. If the claiming
+        // org already has its own — the touch recorded while it was anonymous —
+        // that one stands and the shell keeps its own: nothing is stolen,
+        // nothing is overwritten.
+        await tx.execute(sql`
+          UPDATE org_acquisitions
+             SET org_id = ${orgId}, recorded_via = 'absorbed_shell'
+           WHERE org_id = ${holder.id}
+             AND NOT EXISTS (SELECT 1 FROM org_acquisitions WHERE org_id = ${orgId})
+        `);
       }
 
       const alreadyClaimed = org.claimedAt !== null;
