@@ -130,6 +130,10 @@ export type OfferLifetimeRevenue = {
   /** What a paying client of this offer is worth, USD. `null` = never stated. */
   lifetimeRevenueUsd: number | null;
   lifetimeRevenueStatedAt: string | null;
+  /** Where a prospect books a meeting for this offer. `null` = never stated. */
+  bookingUrl: string | null;
+  /** Where an outreach click on this offer lands. `null` = never stated. */
+  destinationUrl: string | null;
   /** Everything brand-service served for this offer, kept verbatim for bronze. */
   raw: Record<string, unknown>;
 };
@@ -164,6 +168,11 @@ function brandServiceConfig(): { baseUrl: string; apiKey: string } {
  *
  * Nothing is defaulted upstream — a value the brand never stated reads `null`,
  * which never means zero — and we pass those nulls straight through.
+ *
+ * `bookingUrl` and `destinationUrl` must be PRESENT on every offer (null when
+ * never stated). An absent key is a producer defect and throws: it must never
+ * read as null, because the day it reappeared the reward fingerprint would move
+ * with nobody having touched a link, and pay for it.
  *
  * Fail loud: any non-2xx throws BrandServiceError.
  */
@@ -202,14 +211,26 @@ export async function readBrandOfferEconomics(
       })),
     offers: offerRows
       .filter((row) => typeof row.offerId === "string")
-      .map((row) => ({
+      .map((row) => {
+        for (const key of ["bookingUrl", "destinationUrl"] as const) {
+          if (!(key in row)) {
+            throw new BrandServiceError(
+              res.status,
+              `offer-economics served offer ${String(row.offerId)} without \`${key}\``,
+            );
+          }
+        }
+        return {
         offerId: row.offerId as string,
         name: typeof row.name === "string" ? row.name : "",
         lifetimeRevenueUsd:
           typeof row.lifetimeRevenueUsd === "number" ? row.lifetimeRevenueUsd : null,
         lifetimeRevenueStatedAt:
           typeof row.lifetimeRevenueStatedAt === "string" ? row.lifetimeRevenueStatedAt : null,
+        bookingUrl: typeof row.bookingUrl === "string" ? row.bookingUrl : null,
+        destinationUrl: typeof row.destinationUrl === "string" ? row.destinationUrl : null,
         raw: row,
-      })),
+      };
+      }),
   };
 }

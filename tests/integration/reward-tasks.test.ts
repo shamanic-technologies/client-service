@@ -43,6 +43,8 @@ type Offer = {
   name: string;
   lifetimeRevenueUsd: number | null;
   lifetimeRevenueStatedAt: string | null;
+  bookingUrl?: string | null;
+  destinationUrl?: string | null;
 };
 
 type World = {
@@ -65,6 +67,8 @@ function offer(overrides: Partial<Offer> = {}): Offer {
     name: "Self serve",
     lifetimeRevenueUsd: 4900,
     lifetimeRevenueStatedAt: daysAgo(40),
+    bookingUrl: null,
+    destinationUrl: "https://acme.test/pricing",
     ...overrides,
   };
 }
@@ -224,6 +228,16 @@ describe("changing the numbers completes the task and pays once per window", () 
     expect(world.grants).toHaveLength(1);
     expect(again.body.tasks[0].completedCount).toBe(1);
     expect(again.body.tasks[0].due).toBe(false);
+  });
+
+  it("a changed booking link on a due offer is a refresh and pays", async () => {
+    await read();
+
+    world.offers = [offer({ bookingUrl: "https://cal.test/acme" })];
+    const res = await read();
+
+    expect(world.grants).toHaveLength(1);
+    expect(res.body.tasks[0].completedCount).toBe(1);
   });
 
   it("comes due again 30 days later, and pays again", async () => {
@@ -393,6 +407,16 @@ describe("degenerate inputs answer cleanly and honestly", () => {
     expect(res.status).toBe(200);
     expect(res.body.tasks).toEqual([]);
     expect(res.body.rollup.offers).toEqual([{ offerId: OFFER, dueCount: 0, taskCount: 0 }]);
+  });
+
+  it("an offer served without its link keys is a 502, never read as null", async () => {
+    const { bookingUrl: _b, ...withoutBooking } = offer();
+    world.offers = [withoutBooking as Offer];
+
+    const res = await read();
+
+    expect(res.status).toBe(502);
+    expect(res.body.error).toContain("bookingUrl");
   });
 
   it("a stated number served with no statedAt is a 502, not an invented clock", async () => {

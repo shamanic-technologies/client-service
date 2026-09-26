@@ -120,6 +120,13 @@
       "when": 1780588800000,
       "tag": "0016_reward_ledger_offer_grain",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1780588800001,
+      "tag": "0017_reward_fingerprint_links",
+      "breakpoints": true
     }
   ]
 }

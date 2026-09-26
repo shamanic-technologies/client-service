@@ -19,6 +19,8 @@ function offer(overrides: Partial<OfferLifetimeRevenue> = {}): OfferLifetimeReve
     name: "Self serve",
     lifetimeRevenueUsd: 4900,
     lifetimeRevenueStatedAt: "2026-08-01 10:00:00+00",
+    bookingUrl: null,
+    destinationUrl: "https://acme.test/pricing",
     raw: {},
     ...overrides,
   };
@@ -84,6 +86,18 @@ describe("fingerprintOfferContent", () => {
 
   it("changes when the lifetime revenue of a won client changes", () => {
     expect(fingerprintOfferContent(offer({ lifetimeRevenueUsd: 6200 }), LEGS)).not.toBe(
+      fingerprintOfferContent(offer(), LEGS),
+    );
+  });
+
+  it("changes when the booking link is set for the first time", () => {
+    expect(fingerprintOfferContent(offer({ bookingUrl: "https://cal.test/acme" }), LEGS)).not.toBe(
+      fingerprintOfferContent(offer(), LEGS),
+    );
+  });
+
+  it("changes when the destination the outreach click lands on changes", () => {
+    expect(fingerprintOfferContent(offer({ destinationUrl: "https://acme.test/offer" }), LEGS)).not.toBe(
       fingerprintOfferContent(offer(), LEGS),
     );
   });
