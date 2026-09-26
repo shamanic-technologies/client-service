@@ -19,6 +19,323 @@
       }
     },
     "schemas": {
+      "RecordAcquisitionResponse": {
+        "type": "object",
+        "properties": {
+          "orgId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "recorded": {
+            "type": "boolean",
+            "description": "true if THIS call wrote the first touch; false if the org already had one (the call is accepted and ignored)."
+          },
+          "acquisition": {
+            "$ref": "#/components/schemas/StoredAcquisition"
+          }
+        },
+        "required": [
+          "orgId",
+          "recorded",
+          "acquisition"
+        ]
+      },
+      "StoredAcquisition": {
+        "type": "object",
+        "properties": {
+          "channel": {
+            "type": "string"
+          },
+          "utmSource": {
+            "type": "string",
+            "nullable": true
+          },
+          "utmMedium": {
+            "type": "string",
+            "nullable": true
+          },
+          "utmCampaign": {
+            "type": "string",
+            "nullable": true
+          },
+          "utmContent": {
+            "type": "string",
+            "nullable": true
+          },
+          "utmTerm": {
+            "type": "string",
+            "nullable": true
+          },
+          "referrer": {
+            "type": "string",
+            "nullable": true
+          },
+          "landingPath": {
+            "type": "string",
+            "nullable": true
+          },
+          "homepageVariant": {
+            "type": "string",
+            "nullable": true
+          },
+          "gclid": {
+            "type": "string",
+            "nullable": true
+          },
+          "referralCode": {
+            "type": "string",
+            "nullable": true
+          },
+          "firstSeenAt": {
+            "type": "string",
+            "nullable": true
+          },
+          "recordedVia": {
+            "type": "string",
+            "enum": [
+              "resolve",
+              "org_id",
+              "external_ids",
+              "absorbed_shell"
+            ],
+            "description": "Which hand-over recorded it. `absorbed_shell`: recorded on a shell org by an ordinary-signup hand-over, then moved to the org it was absorbed into at claim."
+          },
+          "recordedAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "channel",
+          "utmSource",
+          "utmMedium",
+          "utmCampaign",
+          "utmContent",
+          "utmTerm",
+          "referrer",
+          "landingPath",
+          "homepageVariant",
+          "gclid",
+          "referralCode",
+          "firstSeenAt",
+          "recordedVia",
+          "recordedAt"
+        ],
+        "description": "The org's first touch as stored — the winner, whichever call wrote it."
+      },
+      "ErrorResponse": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "error"
+        ]
+      },
+      "RecordAcquisitionBody": {
+        "anyOf": [
+          {
+            "type": "object",
+            "properties": {
+              "orgId": {
+                "type": "string",
+                "format": "uuid",
+                "description": "Internal org uuid (e.g. the one /internal/resolve returned for an anonymous org)."
+              },
+              "acquisition": {
+                "$ref": "#/components/schemas/Acquisition"
+              }
+            },
+            "required": [
+              "orgId",
+              "acquisition"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "externalOrgId": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Identity-provider (Clerk) org id."
+              },
+              "externalUserId": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Identity-provider (Clerk) user id."
+              },
+              "acquisition": {
+                "$ref": "#/components/schemas/Acquisition"
+              }
+            },
+            "required": [
+              "externalOrgId",
+              "externalUserId",
+              "acquisition"
+            ]
+          }
+        ]
+      },
+      "Acquisition": {
+        "type": "object",
+        "properties": {
+          "channel": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "The channel the dashboard derived, e.g. newsletter, cold_email, paid_search, organic_search, ai_assistant, social, partner, referral, direct, unknown. Free text (no enum), so a channel added later is stored rather than refused. `direct` (no referrer/utm) and `unknown` (no capture at all) are real answers, distinct from an org that has no record."
+          },
+          "utmSource": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 512
+          },
+          "utmMedium": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 512
+          },
+          "utmCampaign": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 512
+          },
+          "utmContent": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 512
+          },
+          "utmTerm": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 512
+          },
+          "referrer": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 2048,
+            "description": "External referrer URL."
+          },
+          "landingPath": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 2048,
+            "description": "Path of the first page landed on."
+          },
+          "homepageVariant": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 128,
+            "description": "Homepage A/B variant shown."
+          },
+          "gclid": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 512,
+            "description": "Google Ads click id, when the visit came from an ad click."
+          },
+          "referralCode": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 256,
+            "description": "Partner / referral link code, when the visit came from one."
+          },
+          "firstSeenAt": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time",
+            "description": "When the browser first saw the visitor. Untrusted, stored as stated."
+          }
+        },
+        "required": [
+          "channel"
+        ],
+        "description": "An org's first touch, handed over from a browser-derived cookie. Every field is untrusted text, bounded in length; only `channel` is required. Unknown keys are dropped."
+      },
+      "OrgAcquisitionResponse": {
+        "type": "object",
+        "properties": {
+          "orgId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "acquisition": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/StoredAcquisition"
+              },
+              {
+                "nullable": true,
+                "description": "null = nothing was ever recorded for this org (every org older than first-touch capture). Never defaulted."
+              }
+            ]
+          }
+        },
+        "required": [
+          "orgId",
+          "acquisition"
+        ]
+      },
+      "ListAcquisitionsResponse": {
+        "type": "object",
+        "properties": {
+          "orgs": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "orgId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "name": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "createdAt": {
+                  "type": "string"
+                },
+                "anonymous": {
+                  "type": "boolean",
+                  "description": "Came into being without an identity provider (signed-out onboarding)."
+                },
+                "claimedAt": {
+                  "type": "string",
+                  "nullable": true,
+                  "description": "When an anonymous org was claimed at signup."
+                },
+                "real": {
+                  "type": "boolean",
+                  "description": "Same definition as POST /internal/orgs/real: not an anonymous org still awaiting a claim. Split signups on this."
+                },
+                "acquisition": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/StoredAcquisition"
+                    },
+                    {
+                      "nullable": true
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "orgId",
+                "name",
+                "createdAt",
+                "anonymous",
+                "claimedAt",
+                "real",
+                "acquisition"
+              ]
+            }
+          }
+        },
+        "required": [
+          "orgs"
+        ]
+      },
       "HealthResponse": {
         "type": "object",
         "properties": {
@@ -67,17 +384,6 @@
         },
         "required": [
           "user"
-        ]
-      },
-      "ErrorResponse": {
-        "type": "object",
-        "properties": {
-          "error": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "error"
         ]
       },
       "ListUsersResponse": {
@@ -627,6 +933,16 @@
             "type": "string",
             "minLength": 1
           },
+          "acquisition": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Acquisition"
+              },
+              {
+                "description": "The org's FIRST TOUCH, if the caller knows it. Recorded only when the org has none yet; ignored otherwise, so a later resolve can never move the credit. Same shape as POST /internal/acquisitions."
+              }
+            ]
+          },
           "anonymous": {
             "type": "boolean",
             "description": "This org is coming into being WITHOUT an identity provider — the signed-out phase of onboarding, where the caller mints `externalOrgId` itself. Recorded on the row we CREATE and never re-derived afterwards, because it is what decides whether the org may later be claimed by a real identity. An existing org keeps whatever it already is: a real organisation can never be re-labelled anonymous by a later resolve."
@@ -989,6 +1305,217 @@
     "parameters": {}
   },
   "paths": {
+    "/internal/acquisitions": {
+      "post": {
+        "summary": "Hand over an org's first touch (recorded once, never overwritten)",
+        "description": "Records which acquisition channel brought an org. Address the org EITHER by internal uuid (`orgId`, e.g. an anonymous org from /internal/resolve) OR by identity-provider ids (`externalOrgId` + `externalUserId`, an ordinary signup) — the latter resolves the org exactly like /internal/resolve, creating it if it does not exist yet.\n\nFIRST TOUCH WINS. The first hand-over for an org is stored; every later one answers 200 with `recorded: false` and the stored touch, and changes nothing. An anonymous org that is later claimed keeps the touch recorded while it was anonymous: the claim preserves the uuid, and the ordinary-signup hand-over that follows (addressed by the Clerk ids, which now resolve to the same org) is ignored. If an ordinary-signup hand-over landed on a shell before the claim absorbed it, the touch moves to the claiming org only when that org has none.\n\nThe payload is untrusted browser-derived text: every field is length-bounded (400 when exceeded), only `channel` is required.",
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecordAcquisitionBody"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Accepted. `recorded` says whether this call wrote it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecordAcquisitionResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Body invalid (unknown org address shape, field over its bound, bad timestamp)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`orgId` names no org",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Write failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "summary": "List orgs created in a window, each with its first touch",
+        "description": "Every org created in [createdAfter, createdBefore), newest first, with its first touch (null when never recorded). Shells — rows that handed their identity to another org at claim — are excluded: they were never a signup. Anonymous orgs still awaiting a claim ARE included, flagged `real: false`, so a consumer can count signed-out starts and signups separately. Join payments on `orgId`.",
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "date-time",
+              "description": "Orgs created at or after this instant."
+            },
+            "required": true,
+            "description": "Orgs created at or after this instant.",
+            "name": "createdAfter",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "date-time",
+              "description": "Orgs created strictly before this instant."
+            },
+            "required": false,
+            "description": "Orgs created strictly before this instant.",
+            "name": "createdBefore",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Orgs with their first touch",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListAcquisitionsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing or invalid createdAfter / createdBefore",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Read failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/internal/orgs/{orgId}/acquisition": {
+      "get": {
+        "summary": "Read one org's first touch",
+        "description": "`acquisition: null` means nothing was ever recorded for this org — distinct from a recorded `direct` or `unknown` channel.",
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "orgId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The org's first touch, or null",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrgAcquisitionResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "orgId is not a uuid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such org",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/health": {
       "get": {
         "summary": "Health check",
