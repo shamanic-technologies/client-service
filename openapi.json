@@ -578,6 +578,63 @@
           "externalUserId"
         ]
       },
+      "TransferBrandResponse": {
+        "type": "object",
+        "properties": {
+          "updatedTables": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "tableName": {
+                  "type": "string"
+                },
+                "count": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "tableName",
+                "count"
+              ]
+            },
+            "description": "Rows moved per table. A replay reports zeros."
+          }
+        },
+        "required": [
+          "updatedTables"
+        ]
+      },
+      "TransferBrandBody": {
+        "type": "object",
+        "properties": {
+          "sourceBrandId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The brand being moved."
+          },
+          "sourceOrgId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Internal org uuid the brand leaves."
+          },
+          "targetOrgId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Internal org uuid the brand joins. Must already exist here: the transfer does not create orgs."
+          },
+          "targetBrandId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "When present, the brand is MERGED into this brand id: every row we hold for `sourceBrandId` is re-labelled with it."
+          }
+        },
+        "required": [
+          "sourceBrandId",
+          "sourceOrgId",
+          "targetOrgId"
+        ]
+      },
       "OrgRealityResponse": {
         "type": "object",
         "properties": {
@@ -1922,6 +1979,88 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/OrgClaimRefusal"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/internal/transfer-brand": {
+      "post": {
+        "summary": "Move everything this service holds for a brand from one org to another",
+        "description": "Fleet contract, called by brand-service's transfer orchestration. Moves the brand's reward-task ledger (silver states, bronze observations, and the completions recorded against those states) from `sourceOrgId` to `targetOrgId`, in one transaction, so the brand's reward tasks read under the target org and no longer under the source. With `targetBrandId`, every row we hold for `sourceBrandId` is also re-labelled with the target brand id.\n\nThe transfer moves HISTORY, not MONEY. Completions already paid stay paid: billing-service's credit grants are its own ledger and nothing here calls it. The content fingerprint and the 30-day clock travel with the rows, so the first read under the target org sees unchanged content and pays nothing. A completion the source org earned but billing has NOT yet acknowledged is money still owed to the source org, and moving it would pay the target instead — so the transfer REFUSES (409 `undelivered_reward_completions`) rather than change either org's balance. A source-org read of the brand's reward tasks delivers it; then replay.\n\nIDEMPOTENT: a replay finds nothing left under the source org and reports zeros. Org-level rows (members, invites, first touch, phone accounts) are not brand rows and never move.",
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TransferBrandBody"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Rows moved",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TransferBrandResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid body",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`target_org_not_found`: the target org does not exist here",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`undelivered_reward_completions` or `target_already_holds_offer_task`: moving would change a balance or collide with the target's own ledger",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
                 }
               }
             }
