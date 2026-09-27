@@ -279,6 +279,31 @@ const OrgRealityResponseSchema = z
   })
   .openapi("OrgRealityResponse");
 
+// --- Brand transfer (fleet contract: POST /internal/transfer-brand) ---
+
+export const TransferBrandBodySchema = z
+  .object({
+    sourceBrandId: z.string().uuid().openapi({ description: "The brand being moved." }),
+    sourceOrgId: z.string().uuid().openapi({ description: "Internal org uuid the brand leaves." }),
+    targetOrgId: z.string().uuid().openapi({ description: "Internal org uuid the brand joins. Must already exist here: the transfer does not create orgs." }),
+    targetBrandId: z.string().uuid().optional().openapi({
+      description: "When present, the brand is MERGED into this brand id: every row we hold for `sourceBrandId` is re-labelled with it.",
+    }),
+  })
+  .refine((body) => body.sourceOrgId !== body.targetOrgId, {
+    message: "sourceOrgId and targetOrgId must differ",
+    path: ["targetOrgId"],
+  })
+  .openapi("TransferBrandBody");
+
+const TransferBrandResponseSchema = z
+  .object({
+    updatedTables: z
+      .array(z.object({ tableName: z.string(), count: z.number().int() }))
+      .openapi({ description: "Rows moved per table. A replay reports zeros." }),
+  })
+  .openapi("TransferBrandResponse");
+
 // --- Acquisition (first touch) ---
 
 const StoredAcquisitionSchema = z
@@ -855,6 +880,46 @@ registry.registerPath({
     500: {
       description: "Internal server error",
       content: { "application/json": { schema: OrgClaimRefusalSchema } },
+    },
+  },
+});
+
+registry.registerPath({
+  method: "post",
+  path: "/internal/transfer-brand",
+  summary: "Move everything this service holds for a brand from one org to another",
+  description:
+    "Fleet contract, called by brand-service's transfer orchestration. Moves the brand's reward-task ledger (silver states, bronze observations, and the completions recorded against those states) from `sourceOrgId` to `targetOrgId`, in one transaction, so the brand's reward tasks read under the target org and no longer under the source. With `targetBrandId`, every row we hold for `sourceBrandId` is also re-labelled with the target brand id.\n\nThe transfer moves HISTORY, not MONEY. Completions already paid stay paid: billing-service's credit grants are its own ledger and nothing here calls it. The content fingerprint and the 30-day clock travel with the rows, so the first read under the target org sees unchanged content and pays nothing. A completion the source org earned but billing has NOT yet acknowledged is money still owed to the source org, and moving it would pay the target instead — so the transfer REFUSES (409 `undelivered_reward_completions`) rather than change either org's balance. A source-org read of the brand's reward tasks delivers it; then replay.\n\nIDEMPOTENT: a replay finds nothing left under the source org and reports zeros. Org-level rows (members, invites, first touch, phone accounts) are not brand rows and never move.",
+  security: [{ ApiKeyAuth: [] }],
+  request: {
+    body: {
+      content: { "application/json": { schema: TransferBrandBodySchema } },
+    },
+  },
+  responses: {
+    200: {
+      description: "Rows moved",
+      content: { "application/json": { schema: TransferBrandResponseSchema } },
+    },
+    400: {
+      description: "Invalid body",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+    401: {
+      description: "Unauthorized",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+    404: {
+      description: "`target_org_not_found`: the target org does not exist here",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+    409: {
+      description: "`undelivered_reward_completions` or `target_already_holds_offer_task`: moving would change a balance or collide with the target's own ledger",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+    500: {
+      description: "Internal server error",
+      content: { "application/json": { schema: ErrorResponseSchema } },
     },
   },
 });
