@@ -36,6 +36,7 @@ interface TeardownSummary {
   stripe: "deleted";
   clerk: ClerkDeleteResult;
   clerkUsers: { deleted: number; notFound: number };
+  absorbedShells: TeardownSummary[];
 }
 
 /**
@@ -47,6 +48,11 @@ interface TeardownSummary {
  *   3b. Clerk deletes every user belonging to the org (keyed by users.external_id) —
  *       BEFORE the local delete, so the users' Clerk ids are still available. Frees
  *       the email so the org can be re-tested.
+ *   3c. every SHELL this org absorbed at claim (`orgs.absorbed_into_org_id`) is torn
+ *       down through this same cascade. A shell's identity was this customer's; it
+ *       goes with them. It must go BEFORE the org row: the FK would null the shell's
+ *       pointer and leave `absorbed_at`, which `orgs_absorbed_both_or_neither`
+ *       refuses, rolling the whole local delete back.
  *   4. client-service deletes its own org-scoped rows (users, invites, org) — LAST,
  *      so the external_id mapping survives every fail-loud retry.
  * Idempotent: re-running on an already-gone org succeeds and reports zero rows;
@@ -93,6 +99,19 @@ async function teardownOrg(orgId: string): Promise<TeardownSummary> {
     }
   }
 
+  // 3c. Shells this org absorbed. Each runs the full cascade (idempotent, fail
+  // loud); the org row survives any failure here, so a retry finds them again.
+  const absorbedShells: TeardownSummary[] = [];
+  if (org) {
+    const shells = await db
+      .select({ id: orgs.id })
+      .from(orgs)
+      .where(eq(orgs.absorbedIntoOrgId, org.id));
+    for (const shell of shells) {
+      absorbedShells.push(await teardownOrg(shell.id));
+    }
+  }
+
   // 4. client-service org-scoped data (LAST). One transaction.
   let clientService = { orgs: 0, users: 0, invites: 0, rewardTasks: 0 };
   if (org) {
@@ -132,7 +151,18 @@ async function teardownOrg(orgId: string): Promise<TeardownSummary> {
     });
   }
 
-  return { orgId, clientService, billing, campaign, runs, key, stripe, clerk, clerkUsers };
+  return {
+    orgId,
+    clientService,
+    billing,
+    campaign,
+    runs,
+    key,
+    stripe,
+    clerk,
+    clerkUsers,
+    absorbedShells,
+  };
 }
 
 /**

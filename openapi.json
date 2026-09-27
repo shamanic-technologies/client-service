@@ -847,6 +847,113 @@
               "deleted",
               "notFound"
             ]
+          },
+          "absorbedShells": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "orgId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "clientService": {
+                  "type": "object",
+                  "properties": {
+                    "orgs": {
+                      "type": "integer"
+                    },
+                    "users": {
+                      "type": "integer"
+                    },
+                    "invites": {
+                      "type": "integer"
+                    },
+                    "rewardTasks": {
+                      "type": "integer",
+                      "description": "Reward-task ledger rows removed for this org. The ledger is keyed on the org uuid rather than by FK, so it is cleared explicitly; each state's completions cascade with it."
+                    }
+                  },
+                  "required": [
+                    "orgs",
+                    "users",
+                    "invites",
+                    "rewardTasks"
+                  ]
+                },
+                "billing": {
+                  "type": "string",
+                  "enum": [
+                    "deleted"
+                  ]
+                },
+                "campaign": {
+                  "type": "string",
+                  "enum": [
+                    "deleted"
+                  ]
+                },
+                "runs": {
+                  "type": "string",
+                  "enum": [
+                    "deleted"
+                  ]
+                },
+                "key": {
+                  "type": "string",
+                  "enum": [
+                    "deleted"
+                  ]
+                },
+                "stripe": {
+                  "type": "string",
+                  "enum": [
+                    "deleted"
+                  ]
+                },
+                "clerk": {
+                  "type": "string",
+                  "enum": [
+                    "deleted",
+                    "not_found"
+                  ]
+                },
+                "clerkUsers": {
+                  "type": "object",
+                  "properties": {
+                    "deleted": {
+                      "type": "integer"
+                    },
+                    "notFound": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "deleted",
+                    "notFound"
+                  ]
+                },
+                "absorbedShells": {
+                  "type": "array",
+                  "items": {
+                    "nullable": true
+                  }
+                }
+              },
+              "required": [
+                "orgId",
+                "clientService",
+                "billing",
+                "campaign",
+                "runs",
+                "key",
+                "stripe",
+                "clerk",
+                "clerkUsers",
+                "absorbedShells"
+              ]
+            },
+            "description": "One teardown summary per shell this org absorbed at claim (orgs.absorbed_into_org_id). A shell's identity was this customer's, so it is torn down through the same cascade, before the org row. Empty when the org absorbed nothing."
           }
         },
         "required": [
@@ -858,7 +965,8 @@
           "key",
           "stripe",
           "clerk",
-          "clerkUsers"
+          "clerkUsers",
+          "absorbedShells"
         ]
       },
       "UpstreamErrorResponse": {
