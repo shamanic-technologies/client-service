@@ -606,7 +606,7 @@ export const OrgTeardownByExternalParamsSchema = z
   })
   .openapi("OrgTeardownByExternalParams");
 
-const OrgTeardownResponseSchema = z
+const OrgTeardownSummaryBaseSchema = z
   .object({
     orgId: z.string().uuid(),
     clientService: z.object({
@@ -628,8 +628,14 @@ const OrgTeardownResponseSchema = z
       deleted: z.number().int(),
       notFound: z.number().int(),
     }),
-  })
-  .openapi("OrgTeardownResponse");
+  });
+
+const OrgTeardownResponseSchema = OrgTeardownSummaryBaseSchema.extend({
+  absorbedShells: z.array(OrgTeardownSummaryBaseSchema.extend({ absorbedShells: z.array(z.unknown()) })).openapi({
+    description:
+      "One teardown summary per shell this org absorbed at claim (orgs.absorbed_into_org_id). A shell's identity was this customer's, so it is torn down through the same cascade, before the org row. Empty when the org absorbed nothing.",
+  }),
+}).openapi("OrgTeardownResponse");
 
 const UpstreamErrorResponseSchema = z
   .object({
