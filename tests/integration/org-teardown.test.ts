@@ -122,6 +122,7 @@ describe("DELETE /internal/orgs/:orgId (cascade teardown)", () => {
       stripe: "deleted",
       clerk: "deleted",
       clerkUsers: { deleted: 2, notFound: 0 },
+      absorbedShells: [],
     });
 
     // Both Clerk users deleted online, keyed by their Clerk user id
@@ -316,6 +317,57 @@ describe("DELETE /internal/orgs/:orgId (cascade teardown)", () => {
     // Invitee org gone
     const remainingInvitee = await db.select().from(orgs).where(eq(orgs.id, invitee.id));
     expect(remainingInvitee).toHaveLength(0);
+  });
+
+  it("tears down the shells an org absorbed at claim, then the org itself", async () => {
+    // Prod shape: a claim took the identity off a shell and handed it to this org.
+    const org = await insertTestOrg({ externalId: "org_claimed_absorber" });
+    const [shell] = await db
+      .insert(orgs)
+      .values({ externalId: null, slug: null, absorbedIntoOrgId: org.id, absorbedAt: new Date() })
+      .returning({ id: orgs.id });
+    const bystander = await insertTestOrg({ externalId: "org_bystander_keep" });
+
+    const res = await request(app).delete(`/internal/orgs/${org.id}`).set("x-api-key", API_KEY);
+
+    expect(res.status).toBe(200);
+    expect(res.body.clientService.orgs).toBe(1);
+    expect(res.body.absorbedShells).toHaveLength(1);
+    expect(res.body.absorbedShells[0].orgId).toBe(shell.id);
+    expect(res.body.absorbedShells[0].clientService.orgs).toBe(1);
+    expect(res.body.absorbedShells[0].clerk).toBe("not_found"); // a shell holds no Clerk org
+    // The shell went through the same producer cascade, keyed on its own uuid.
+    expect(vi.mocked(deleteBillingByOrg)).toHaveBeenCalledWith(shell.id);
+    expect(vi.mocked(deleteStripeCustomerByOrg)).toHaveBeenCalledWith(shell.id);
+
+    expect(await db.select().from(orgs).where(eq(orgs.id, org.id))).toHaveLength(0);
+    expect(await db.select().from(orgs).where(eq(orgs.id, shell.id))).toHaveLength(0);
+    expect(await db.select().from(orgs).where(eq(orgs.id, bystander.id))).toHaveLength(1);
+  });
+
+  it("keeps the org and its shell when a shell's cascade fails, so a retry finds both", async () => {
+    const org = await insertTestOrg({ externalId: "org_absorber_retry" });
+    const [shell] = await db
+      .insert(orgs)
+      .values({ externalId: null, slug: null, absorbedIntoOrgId: org.id, absorbedAt: new Date() })
+      .returning({ id: orgs.id });
+    vi.mocked(deleteRunsByOrg).mockImplementation(async (id: string) => {
+      if (id === shell.id) throw new InternalServiceTeardownError("runs", 500, "runs boom");
+      return "deleted";
+    });
+
+    const res = await request(app).delete(`/internal/orgs/${org.id}`).set("x-api-key", API_KEY);
+
+    expect(res.status).toBe(502);
+    expect(await db.select().from(orgs).where(eq(orgs.id, org.id))).toHaveLength(1);
+    const [kept] = await db.select().from(orgs).where(eq(orgs.id, shell.id));
+    expect(kept.absorbedIntoOrgId).toBe(org.id);
+
+    vi.mocked(deleteRunsByOrg).mockReset().mockResolvedValue("deleted");
+    const retry = await request(app).delete(`/internal/orgs/${org.id}`).set("x-api-key", API_KEY);
+    expect(retry.status).toBe(200);
+    expect(await db.select().from(orgs).where(eq(orgs.id, org.id))).toHaveLength(0);
+    expect(await db.select().from(orgs).where(eq(orgs.id, shell.id))).toHaveLength(0);
   });
 
   it("returns 400 for a non-UUID orgId", async () => {
