@@ -191,3 +191,73 @@ export async function deleteClerkUser(clerkUserId: string): Promise<ClerkDeleteR
     throw new ClerkServiceError(errorStatus(err), errorBody(err));
   }
 }
+
+/** One organization a Clerk user belongs to, as the identity provider reports it. */
+export interface ClerkUserMembership {
+  clerkOrgId: string;
+  name: string;
+  role: string;
+}
+
+/** Clerk caps a page at 500; a user in more orgs than that is paged through. */
+const CLERK_PAGE_LIMIT = 500;
+
+/**
+ * Every organization a Clerk user is a member of RIGHT NOW, read live from Clerk.
+ *
+ * Returns `null` when Clerk does not know the user (404) — distinct from `[]`,
+ * a user Clerk knows who belongs to no organization. Any other failure throws
+ * ClerkServiceError: "could not ask" must never read as "member of nothing".
+ */
+export async function listClerkUserMemberships(
+  clerkUserId: string,
+): Promise<ClerkUserMembership[] | null> {
+  const clerk = await getClerkClient({ method: "GET", path: "/internal/users/:userId/orgs" });
+  const memberships: ClerkUserMembership[] = [];
+  try {
+    for (let offset = 0; ; offset += CLERK_PAGE_LIMIT) {
+      const page = await clerk.users.getOrganizationMembershipList({
+        userId: clerkUserId,
+        limit: CLERK_PAGE_LIMIT,
+        offset,
+      });
+      for (const m of page.data) {
+        memberships.push({ clerkOrgId: m.organization.id, name: m.organization.name, role: m.role });
+      }
+      if (page.data.length < CLERK_PAGE_LIMIT || memberships.length >= page.totalCount) break;
+    }
+    return memberships;
+  } catch (err: unknown) {
+    if (isNotFound(err)) return null;
+    throw new ClerkServiceError(errorStatus(err), errorBody(err));
+  }
+}
+
+/** Clerk's organization-list filter takes ids in the query string; keep URLs short. */
+const CLERK_ORG_ID_CHUNK = 100;
+
+/**
+ * Display names of a set of Clerk organizations, read live from Clerk in as few
+ * calls as the id count allows (one per 100 ids). An id Clerk does not know is
+ * simply absent from the map. Any failure throws ClerkServiceError (fail loud).
+ */
+export async function getClerkOrganizationNames(
+  clerkOrgIds: string[],
+): Promise<Map<string, string>> {
+  const names = new Map<string, string>();
+  if (clerkOrgIds.length === 0) return names;
+  const clerk = await getClerkClient({ method: "POST", path: "/internal/orgs/names" });
+  try {
+    for (let i = 0; i < clerkOrgIds.length; i += CLERK_ORG_ID_CHUNK) {
+      const chunk = clerkOrgIds.slice(i, i + CLERK_ORG_ID_CHUNK);
+      const page = await clerk.organizations.getOrganizationList({
+        organizationId: chunk,
+        limit: CLERK_ORG_ID_CHUNK,
+      });
+      for (const org of page.data) names.set(org.id, org.name);
+    }
+    return names;
+  } catch (err: unknown) {
+    throw new ClerkServiceError(errorStatus(err), errorBody(err));
+  }
+}
