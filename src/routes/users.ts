@@ -3,7 +3,9 @@ import { and, eq, count } from "drizzle-orm";
 import { db } from "../db/index.js";
 import { users, orgs } from "../db/schema.js";
 import { requireApiKey } from "../middleware/auth.js";
-import { GetUserParamsSchema, ListUsersQuerySchema } from "../schemas.js";
+import { GetUserParamsSchema, ListUsersQuerySchema, UserOrgsParamsSchema } from "../schemas.js";
+import { ClerkServiceError } from "../lib/clerk-client.js";
+import { getUserOrganizations, MEMBERSHIP_CACHE_TTL_MS } from "../lib/user-memberships.js";
 
 const router = Router();
 
@@ -121,6 +123,58 @@ router.get("/internal/users", requireApiKey, async (req, res) => {
   } catch (error) {
     console.error("List users error:", error);
     return res.status(500).json({ error: "Failed to list users" });
+  }
+});
+
+/**
+ * GET /internal/users/:userId/orgs - The organizations a user belongs to RIGHT NOW.
+ *
+ * Read from the identity provider (Clerk), never from `users.org_id` (the org
+ * last active in the dashboard). Called by the gateway on every user-API-key
+ * request, so Clerk's answer is reused for MEMBERSHIP_CACHE_TTL_MS: that is the
+ * published staleness bound for a removal. Fail loud: Clerk unreachable is a
+ * 502, never an empty list.
+ */
+router.get("/internal/users/:userId/orgs", requireApiKey, async (req, res) => {
+  const parsed = UserOrgsParamsSchema.safeParse(req.params);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid userId parameter", details: parsed.error.flatten() });
+  }
+
+  try {
+    const result = await getUserOrganizations(parsed.data.userId);
+    switch (result.kind) {
+      case "user_not_found":
+        return res.status(404).json({ error: "User not found", reason: "user_not_found" });
+      case "identity_not_found":
+        return res.status(404).json({
+          error: "The identity provider does not know this user's identity",
+          reason: "identity_not_found",
+        });
+      case "user_has_no_identity":
+        return res.status(409).json({
+          error: "User has no identity-provider id, so no membership set can be read",
+          reason: "user_has_no_identity",
+        });
+      case "ok":
+        return res.status(200).json({
+          userId: result.userId,
+          organizations: result.organizations,
+          unresolved: result.unresolved,
+          membershipsCheckedAt: result.checkedAt.toISOString(),
+          maxStalenessSeconds: MEMBERSHIP_CACHE_TTL_MS / 1000,
+        });
+    }
+  } catch (error) {
+    if (error instanceof ClerkServiceError) {
+      console.error("[client-service] Membership read: identity provider failed:", error.message);
+      return res.status(502).json({
+        error: `Could not read memberships from the identity provider (${error.status}): ${error.body}`,
+        reason: "identity_provider_unavailable",
+      });
+    }
+    console.error("[client-service] Membership read failed:", error);
+    return res.status(500).json({ error: "Failed to read user organizations" });
   }
 });
 

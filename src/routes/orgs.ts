@@ -8,7 +8,9 @@ import {
   OrgMemberCheckParamsSchema,
   OrgTeardownParamsSchema,
   OrgTeardownByExternalParamsSchema,
+  OrgNamesBodySchema,
 } from "../schemas.js";
+import { getOrgNames } from "../lib/user-memberships.js";
 import {
   deleteClerkOrganization,
   deleteClerkUser,
@@ -198,6 +200,34 @@ function handleTeardownError(error: unknown, res: Response) {
     error: error instanceof Error ? error.message : "Org teardown failed",
   });
 }
+
+/**
+ * POST /internal/orgs/names - Display names of a set of orgs in one read.
+ *
+ * Registered before the `:orgId` routes for readability; no clash either way
+ * (those are GET/DELETE). Stored names win; unnamed orgs carrying a Clerk
+ * identity are named from Clerk in one batched call and written back. Clerk
+ * unreachable when it had to be asked is a 502.
+ */
+router.post("/internal/orgs/names", requireApiKey, async (req, res) => {
+  const parsed = OrgNamesBodySchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid request body", details: parsed.error.flatten() });
+  }
+  try {
+    return res.status(200).json(await getOrgNames(parsed.data.orgIds));
+  } catch (error) {
+    if (error instanceof ClerkServiceError) {
+      console.error("[client-service] Org names: identity provider failed:", error.message);
+      return res.status(502).json({
+        error: `Could not read org names from the identity provider (${error.status}): ${error.body}`,
+        reason: "identity_provider_unavailable",
+      });
+    }
+    console.error("[client-service] Org names read failed:", error);
+    return res.status(500).json({ error: "Failed to read org names" });
+  }
+});
 
 /**
  * GET /internal/orgs/:orgId - Fetch an org record by its internal UUID.
