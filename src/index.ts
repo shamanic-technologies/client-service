@@ -22,6 +22,7 @@ import invitesRoutes from "./routes/invites.js";
 import waitlistRoutes from "./routes/waitlist.js";
 import acquisitionsRoutes from "./routes/acquisitions.js";
 import transferBrandRoutes from "./routes/transfer-brand.js";
+import orgDirectoryRoutes from "./routes/org-directory.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -67,6 +68,7 @@ app.use(invitesRoutes);
 app.use(waitlistRoutes);
 app.use(acquisitionsRoutes);
 app.use(transferBrandRoutes);
+app.use(orgDirectoryRoutes);
 
 // 404 handler
 app.use((req, res) => {

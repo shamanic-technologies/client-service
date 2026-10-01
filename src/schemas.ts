@@ -1457,3 +1457,124 @@ registry.registerPath({
     },
   },
 });
+
+// --- Org directory: a user's organizations, and org names in bulk ---
+
+const IdentityProviderErrorResponseSchema = z
+  .object({
+    error: z.enum(["identity_provider_unavailable"]),
+    message: z.string(),
+    provider: z.enum(["clerk"]),
+    upstreamStatus: z.number().int(),
+    upstreamBody: z.string(),
+  })
+  .openapi("IdentityProviderErrorResponse");
+
+const UserOrgSchema = z
+  .object({
+    id: z.string().uuid().openapi({ description: "Internal org uuid — the platform `x-org-id`." }),
+    name: z.string().openapi({ description: "The org's current display name in the identity provider." }),
+    role: z.string().openapi({ description: "The user's role in the org, as the identity provider states it (e.g. `org:admin`, `org:member`)." }),
+  })
+  .openapi("UserOrg");
+
+const UnresolvedUserOrgSchema = z
+  .object({
+    externalOrgId: z.string().openapi({ description: "The identity-provider org id." }),
+    name: z.string(),
+    role: z.string(),
+  })
+  .openapi("UnresolvedUserOrg");
+
+const UserOrgsResponseSchema = z
+  .object({
+    userId: z.string().uuid(),
+    orgs: z.array(UserOrgSchema).openapi({
+      description: "Every organization the user belongs to that has an internal id. Empty = the user is a member of no organization (never a failure).",
+    }),
+    unresolved: z.array(UnresolvedUserOrgSchema).openapi({
+      description:
+        "Organizations the user belongs to in the identity provider that this service has not seen yet, so they have no internal id. Reported, never dropped and never created by this read. They acquire an id the first time the dashboard resolves them (POST /internal/resolve), and are listed under `orgs` on the very next call.",
+    }),
+    maxStalenessSeconds: z.number().int().openapi({
+      description: "Upper bound on how old the membership set may be: a removal made in the identity provider is reflected within this many seconds.",
+    }),
+  })
+  .openapi("UserOrgsResponse");
+
+registry.registerPath({
+  method: "get",
+  path: "/internal/users/{userId}/orgs",
+  summary: "Every organization a user belongs to right now",
+  description:
+    "Lists the organizations the user is a member of, read from the identity provider (Clerk), each mapped to the internal org uuid the rest of the platform keys on (`x-org-id`). Built for per-request authorization of a user API key that acts across all of a user's organizations: unlike the user row's single `org_id` (the org last active in the dashboard), this is the full membership set.\n\nSTALENESS: the identity provider's answer is cached in-process for 60 seconds per user (only successful answers are cached). A user removed from an organization stops being listed at most 60 seconds after the removal; a renamed org shows its new name within the same bound. The external -> internal id mapping is read fresh on every call.\n\nAn identity-provider org this service has never seen is returned under `unresolved` rather than dropped or created.\n\nFAIL LOUD: if the identity provider (or the key-service holding its secret) cannot be asked, the answer is a 502 `identity_provider_unavailable`, never an empty list. An empty `orgs` with an empty `unresolved` means the provider confirmed the user belongs to no organization.",
+  security: [{ ApiKeyAuth: [] }],
+  request: { params: GetUserParamsSchema },
+  responses: {
+    200: {
+      description: "The user's current organizations",
+      content: { "application/json": { schema: UserOrgsResponseSchema } },
+    },
+    400: { description: "userId is not a uuid", content: { "application/json": { schema: ErrorResponseSchema } } },
+    401: { description: "Unauthorized", content: { "application/json": { schema: ErrorResponseSchema } } },
+    404: {
+      description:
+        "`user_not_found`: no user row has this id. `identity_not_found`: the row exists but the identity provider does not know its external user id (deleted there).",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+    422: {
+      description: "`user_has_no_identity`: the user row carries no external (identity-provider) user id, so there is nothing to ask.",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+    502: {
+      description: "The identity provider could not be asked. Never answered as an empty list.",
+      content: { "application/json": { schema: IdentityProviderErrorResponseSchema } },
+    },
+  },
+});
+
+export const OrgNamesBodySchema = z
+  .object({
+    orgIds: z.array(z.string().uuid()).max(500).openapi({ description: "Internal org uuids (up to 500)." }),
+  })
+  .openapi("OrgNamesBody");
+
+const OrgNamesResponseSchema = z
+  .object({
+    orgs: z
+      .array(
+        z.object({
+          id: z.string().uuid(),
+          name: z.string().nullable().openapi({
+            description:
+              "The org's current display name in the identity provider; for an org the provider does not know (an anonymous org not claimed yet, a shell), the name stored here. Null when neither has one.",
+          }),
+        }),
+      )
+      .openapi({ description: "One entry per submitted id that names an org, in submission order." }),
+    missing: z.array(z.string().uuid()).openapi({ description: "Submitted ids that name no org." }),
+    maxStalenessSeconds: z.number().int().openapi({ description: "Upper bound on how old a name may be (a rename shows within this many seconds)." }),
+  })
+  .openapi("OrgNamesResponse");
+
+registry.registerPath({
+  method: "post",
+  path: "/internal/orgs/names",
+  summary: "Display names of many organizations in one call",
+  description:
+    "Resolves up to 500 internal org uuids to display names in one call. Names come from the identity provider (Clerk) in batched requests, because the org rows here mostly carry no name; each name is cached for 60 seconds. An org the provider does not know falls back to the name stored here (possibly null) — that is the provider's answer, not a failure.\n\nFAIL LOUD: if the identity provider cannot be asked, the answer is a 502 `identity_provider_unavailable`, never a list of null names.",
+  security: [{ ApiKeyAuth: [] }],
+  request: { body: { content: { "application/json": { schema: OrgNamesBodySchema } } } },
+  responses: {
+    200: {
+      description: "Names for every submitted id that names an org",
+      content: { "application/json": { schema: OrgNamesResponseSchema } },
+    },
+    400: { description: "Body is not { orgIds: uuid[] } (max 500)", content: { "application/json": { schema: ErrorResponseSchema } } },
+    401: { description: "Unauthorized", content: { "application/json": { schema: ErrorResponseSchema } } },
+    502: {
+      description: "The identity provider could not be asked.",
+      content: { "application/json": { schema: IdentityProviderErrorResponseSchema } },
+    },
+  },
+});

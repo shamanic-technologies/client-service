@@ -1,16 +1,27 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
 // Mock the Clerk SDK so no real network/secret is needed.
-const { deleteOrgMock, deleteUserMock, createUserMock, createOrgMock } = vi.hoisted(() => ({
-  deleteOrgMock: vi.fn(),
-  deleteUserMock: vi.fn(),
-  createUserMock: vi.fn(),
-  createOrgMock: vi.fn(),
-}));
+const { deleteOrgMock, deleteUserMock, createUserMock, createOrgMock, membershipListMock, orgListMock } =
+  vi.hoisted(() => ({
+    deleteOrgMock: vi.fn(),
+    deleteUserMock: vi.fn(),
+    createUserMock: vi.fn(),
+    createOrgMock: vi.fn(),
+    membershipListMock: vi.fn(),
+    orgListMock: vi.fn(),
+  }));
 vi.mock("@clerk/backend", () => ({
   createClerkClient: () => ({
-    organizations: { deleteOrganization: deleteOrgMock, createOrganization: createOrgMock },
-    users: { deleteUser: deleteUserMock, createUser: createUserMock },
+    organizations: {
+      deleteOrganization: deleteOrgMock,
+      createOrganization: createOrgMock,
+      getOrganizationList: orgListMock,
+    },
+    users: {
+      deleteUser: deleteUserMock,
+      createUser: createUserMock,
+      getOrganizationMembershipList: membershipListMock,
+    },
   }),
 }));
 
@@ -19,6 +30,8 @@ import {
   deleteClerkUser,
   createClerkPhoneAccount,
   syntheticPhoneEmail,
+  listClerkUserMemberships,
+  getClerkOrganizationNames,
   ClerkServiceError,
 } from "../../src/lib/clerk-client.js";
 
@@ -208,5 +221,93 @@ describe("createClerkPhoneAccount", () => {
     expect(err.status).toBe(500);
     expect(deleteUserMock).not.toHaveBeenCalled();
     expect(createOrgMock).not.toHaveBeenCalled();
+  });
+});
+
+function membership(id: string, name: string, role = "org:admin") {
+  return { organization: { id, name }, role };
+}
+
+describe("listClerkUserMemberships", () => {
+  beforeEach(() => membershipListMock.mockReset());
+
+  it("lists every org the user belongs to, with name and role", async () => {
+    membershipListMock.mockResolvedValueOnce({
+      data: [membership("org_a", "Living Vital"), membership("org_b", "distribute.you", "org:member")],
+      totalCount: 2,
+    });
+    const result = await listClerkUserMemberships("user_1");
+    expect(result).toEqual([
+      { clerkOrgId: "org_a", name: "Living Vital", role: "org:admin" },
+      { clerkOrgId: "org_b", name: "distribute.you", role: "org:member" },
+    ]);
+    expect(membershipListMock).toHaveBeenCalledWith({ userId: "user_1", limit: 500, offset: 0 });
+  });
+
+  it("paginates until Clerk's totalCount is reached", async () => {
+    const page1 = Array.from({ length: 500 }, (_, i) => membership(`org_${i}`, `Org ${i}`));
+    membershipListMock
+      .mockResolvedValueOnce({ data: page1, totalCount: 501 })
+      .mockResolvedValueOnce({ data: [membership("org_500", "Org 500")], totalCount: 501 });
+    const result = await listClerkUserMemberships("user_1");
+    expect(result).not.toBe("not_found");
+    expect((result as unknown[]).length).toBe(501);
+    expect(membershipListMock).toHaveBeenLastCalledWith({ userId: "user_1", limit: 500, offset: 500 });
+  });
+
+  it("an empty list is an answer: member of no organization", async () => {
+    membershipListMock.mockResolvedValueOnce({ data: [], totalCount: 0 });
+    expect(await listClerkUserMemberships("user_1")).toEqual([]);
+  });
+
+  it("a Clerk 404 is 'not_found' (Clerk does not know the user), not an empty list", async () => {
+    membershipListMock.mockRejectedValueOnce({ status: 404, errors: [{ code: "resource_not_found" }] });
+    expect(await listClerkUserMemberships("user_gone")).toBe("not_found");
+  });
+
+  it("throws ClerkServiceError on any other Clerk failure (never an empty list)", async () => {
+    membershipListMock.mockRejectedValueOnce({ status: 503, errors: [{ message: "down" }] });
+    const err = await listClerkUserMemberships("user_1").catch((e) => e);
+    expect(err).toBeInstanceOf(ClerkServiceError);
+    expect(err.status).toBe(503);
+  });
+
+  it("a key-service failure is a ClerkServiceError too (could not ask the provider)", async () => {
+    stubKeyServiceFailure(500, "key-service down");
+    const err = await listClerkUserMemberships("user_1").catch((e) => e);
+    expect(err).toBeInstanceOf(ClerkServiceError);
+    expect(err.status).toBe(502);
+    expect(err.body).toContain("key-service down");
+    expect(membershipListMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("getClerkOrganizationNames", () => {
+  beforeEach(() => orgListMock.mockReset());
+
+  it("returns names keyed by Clerk org id; unknown ids are absent", async () => {
+    orgListMock.mockResolvedValueOnce({ data: [{ id: "org_a", name: "A" }, { id: "org_b", name: "B" }], totalCount: 2 });
+    const names = await getClerkOrganizationNames(["org_a", "org_b", "org_unknown"]);
+    expect(names).toEqual(new Map([["org_a", "A"], ["org_b", "B"]]));
+    expect(orgListMock).toHaveBeenCalledWith({ organizationId: ["org_a", "org_b", "org_unknown"], limit: 100 });
+  });
+
+  it("chunks ids by 100 per Clerk request", async () => {
+    orgListMock.mockResolvedValue({ data: [], totalCount: 0 });
+    const ids = Array.from({ length: 250 }, (_, i) => `org_${i}`);
+    await getClerkOrganizationNames(ids);
+    expect(orgListMock).toHaveBeenCalledTimes(3);
+    expect(orgListMock.mock.calls[2][0].organizationId.length).toBe(50);
+  });
+
+  it("makes no Clerk call for an empty list", async () => {
+    expect(await getClerkOrganizationNames([])).toEqual(new Map());
+    expect(orgListMock).not.toHaveBeenCalled();
+  });
+
+  it("throws ClerkServiceError when any chunk fails", async () => {
+    orgListMock.mockRejectedValueOnce({ status: 500, errors: [{ message: "boom" }] });
+    const err = await getClerkOrganizationNames(["org_a"]).catch((e) => e);
+    expect(err).toBeInstanceOf(ClerkServiceError);
   });
 });

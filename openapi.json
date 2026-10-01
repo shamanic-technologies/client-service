@@ -1460,6 +1460,176 @@
           "dueCount",
           "taskCount"
         ]
+      },
+      "UserOrgsResponse": {
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "orgs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/UserOrg"
+            },
+            "description": "Every organization the user belongs to that has an internal id. Empty = the user is a member of no organization (never a failure)."
+          },
+          "unresolved": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/UnresolvedUserOrg"
+            },
+            "description": "Organizations the user belongs to in the identity provider that this service has not seen yet, so they have no internal id. Reported, never dropped and never created by this read. They acquire an id the first time the dashboard resolves them (POST /internal/resolve), and are listed under `orgs` on the very next call."
+          },
+          "maxStalenessSeconds": {
+            "type": "integer",
+            "description": "Upper bound on how old the membership set may be: a removal made in the identity provider is reflected within this many seconds."
+          }
+        },
+        "required": [
+          "userId",
+          "orgs",
+          "unresolved",
+          "maxStalenessSeconds"
+        ]
+      },
+      "UserOrg": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Internal org uuid — the platform `x-org-id`."
+          },
+          "name": {
+            "type": "string",
+            "description": "The org's current display name in the identity provider."
+          },
+          "role": {
+            "type": "string",
+            "description": "The user's role in the org, as the identity provider states it (e.g. `org:admin`, `org:member`)."
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "role"
+        ]
+      },
+      "UnresolvedUserOrg": {
+        "type": "object",
+        "properties": {
+          "externalOrgId": {
+            "type": "string",
+            "description": "The identity-provider org id."
+          },
+          "name": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "externalOrgId",
+          "name",
+          "role"
+        ]
+      },
+      "IdentityProviderErrorResponse": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "string",
+            "enum": [
+              "identity_provider_unavailable"
+            ]
+          },
+          "message": {
+            "type": "string"
+          },
+          "provider": {
+            "type": "string",
+            "enum": [
+              "clerk"
+            ]
+          },
+          "upstreamStatus": {
+            "type": "integer"
+          },
+          "upstreamBody": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "error",
+          "message",
+          "provider",
+          "upstreamStatus",
+          "upstreamBody"
+        ]
+      },
+      "OrgNamesResponse": {
+        "type": "object",
+        "properties": {
+          "orgs": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "name": {
+                  "type": "string",
+                  "nullable": true,
+                  "description": "The org's current display name in the identity provider; for an org the provider does not know (an anonymous org not claimed yet, a shell), the name stored here. Null when neither has one."
+                }
+              },
+              "required": [
+                "id",
+                "name"
+              ]
+            },
+            "description": "One entry per submitted id that names an org, in submission order."
+          },
+          "missing": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Submitted ids that name no org."
+          },
+          "maxStalenessSeconds": {
+            "type": "integer",
+            "description": "Upper bound on how old a name may be (a rename shows within this many seconds)."
+          }
+        },
+        "required": [
+          "orgs",
+          "missing",
+          "maxStalenessSeconds"
+        ]
+      },
+      "OrgNamesBody": {
+        "type": "object",
+        "properties": {
+          "orgIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "maxItems": 500,
+            "description": "Internal org uuids (up to 500)."
+          }
+        },
+        "required": [
+          "orgIds"
+        ]
       }
     },
     "parameters": {}
@@ -3227,6 +3397,152 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/internal/users/{userId}/orgs": {
+      "get": {
+        "summary": "Every organization a user belongs to right now",
+        "description": "Lists the organizations the user is a member of, read from the identity provider (Clerk), each mapped to the internal org uuid the rest of the platform keys on (`x-org-id`). Built for per-request authorization of a user API key that acts across all of a user's organizations: unlike the user row's single `org_id` (the org last active in the dashboard), this is the full membership set.\n\nSTALENESS: the identity provider's answer is cached in-process for 60 seconds per user (only successful answers are cached). A user removed from an organization stops being listed at most 60 seconds after the removal; a renamed org shows its new name within the same bound. The external -> internal id mapping is read fresh on every call.\n\nAn identity-provider org this service has never seen is returned under `unresolved` rather than dropped or created.\n\nFAIL LOUD: if the identity provider (or the key-service holding its secret) cannot be asked, the answer is a 502 `identity_provider_unavailable`, never an empty list. An empty `orgs` with an empty `unresolved` means the provider confirmed the user belongs to no organization.",
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "userId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The user's current organizations",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserOrgsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "userId is not a uuid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`user_not_found`: no user row has this id. `identity_not_found`: the row exists but the identity provider does not know its external user id (deleted there).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "`user_has_no_identity`: the user row carries no external (identity-provider) user id, so there is nothing to ask.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "The identity provider could not be asked. Never answered as an empty list.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IdentityProviderErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/internal/orgs/names": {
+      "post": {
+        "summary": "Display names of many organizations in one call",
+        "description": "Resolves up to 500 internal org uuids to display names in one call. Names come from the identity provider (Clerk) in batched requests, because the org rows here mostly carry no name; each name is cached for 60 seconds. An org the provider does not know falls back to the name stored here (possibly null) — that is the provider's answer, not a failure.\n\nFAIL LOUD: if the identity provider cannot be asked, the answer is a 502 `identity_provider_unavailable`, never a list of null names.",
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OrgNamesBody"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Names for every submitted id that names an org",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrgNamesResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Body is not { orgIds: uuid[] } (max 500)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "The identity provider could not be asked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IdentityProviderErrorResponse"
                 }
               }
             }
