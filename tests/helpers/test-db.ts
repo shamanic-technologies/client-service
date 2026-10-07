@@ -8,6 +8,7 @@ import {
   rewardTaskStates,
   rewardTaskCompletions,
   orgAcquisitions,
+  userLinkedinProfiles,
 } from "../../src/db/schema.js";
 
 /**
@@ -15,6 +16,7 @@ import {
  */
 export async function cleanTestData() {
   await db.delete(orgAcquisitions);
+  await db.delete(userLinkedinProfiles);
   await db.delete(rewardTaskCompletions);
   await db.delete(rewardTaskStates);
   await db.delete(rewardOfferObservations);
