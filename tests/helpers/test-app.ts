@@ -14,6 +14,7 @@ import invitesRoutes from "../../src/routes/invites.js";
 import waitlistRoutes from "../../src/routes/waitlist.js";
 import acquisitionsRoutes from "../../src/routes/acquisitions.js";
 import transferBrandRoutes from "../../src/routes/transfer-brand.js";
+import userLinkedinProfileRoutes from "../../src/routes/user-linkedin-profile.js";
 
 /**
  * Create a test Express app instance with all routes
@@ -38,6 +39,7 @@ export function createTestApp() {
   app.use(waitlistRoutes);
   app.use(acquisitionsRoutes);
   app.use(transferBrandRoutes);
+  app.use(userLinkedinProfileRoutes);
 
   // 404 handler
   app.use((req, res) => {

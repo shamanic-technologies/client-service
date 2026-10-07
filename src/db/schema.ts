@@ -290,3 +290,34 @@ export type RewardTaskCompletion = typeof rewardTaskCompletions.$inferSelect;
 export type OrgAcquisition = typeof orgAcquisitions.$inferSelect;
 export type Waitlist = typeof waitlist.$inferSelect;
 export type NewWaitlist = typeof waitlist.$inferInsert;
+
+/**
+ * A user's OWN LinkedIn profile, resolved once from their email and reused
+ * (src/lib/user-linkedin-profile.ts). No row = not looked up yet; `none_found`
+ * is a real answer with a reason. A row answers only for `matched_on_email`.
+ */
+export const userLinkedinProfiles = pgTable(
+  "user_linkedin_profiles",
+  {
+    userId: uuid("user_id")
+      .primaryKey()
+      .references(() => users.id, { onDelete: "cascade" }),
+    status: text("status").notNull(),
+    linkedinUrl: text("linkedin_url"),
+    noneFoundReason: text("none_found_reason"),
+    source: text("source").notNull(),
+    matchedOnEmail: text("matched_on_email"),
+    matchConfidence: text("match_confidence"),
+    apolloPersonId: text("apollo_person_id"),
+    vendorResponse: jsonb("vendor_response"),
+    resolvedAt: timestamp("resolved_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    check("user_linkedin_profiles_status_check", sql`${table.status} IN ('found', 'none_found')`),
+    check("user_linkedin_profiles_found_has_url", sql`(${table.status} = 'found') = (${table.linkedinUrl} IS NOT NULL)`),
+    check("user_linkedin_profiles_none_has_reason", sql`(${table.status} = 'none_found') = (${table.noneFoundReason} IS NOT NULL)`),
+    check("user_linkedin_profiles_source_check", sql`${table.source} IN ('apollo_people_match_by_email', 'user_record')`),
+  ]
+);
+
+export type UserLinkedinProfile = typeof userLinkedinProfiles.$inferSelect;

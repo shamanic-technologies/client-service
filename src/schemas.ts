@@ -1569,3 +1569,79 @@ registry.registerPath({
     500: { description: "Read failed", content: { "application/json": { schema: ErrorResponseSchema } } },
   },
 });
+
+// --- A user's own LinkedIn profile ---
+
+export const UserLinkedinProfileParamsSchema = z
+  .object({
+    userId: z.string().uuid().openapi({
+      description: "Internal user id (users.id): the `x-user-id` the api-service gateway forwards on a dashboard request.",
+    }),
+  })
+  .openapi("UserLinkedinProfileParams");
+
+const UserLinkedinProfileSchema = z
+  .object({
+    userId: z.string().uuid(),
+    status: z.enum(["found", "none_found", "not_looked_up"]).openapi({
+      description:
+        "`found`: `linkedinUrl` is the user's own profile. `none_found`: looked up, nothing we would stand behind (`noneFoundReason` says why). `not_looked_up`: no resolve has run for the user's CURRENT email yet (call POST .../resolve).",
+    }),
+    linkedinUrl: z.string().nullable().openapi({ description: "Normalized `https://www.linkedin.com/in/<slug>`. Non-null exactly when status is `found`." }),
+    noneFoundReason: z
+      .enum(["no_email_on_record", "no_match", "weak_match", "no_linkedin_on_match", "unrecognised_linkedin_url"])
+      .nullable()
+      .openapi({
+        description:
+          "Non-null exactly when status is `none_found`. `no_email_on_record`: the user has no email, nothing was asked. `no_match`: Apollo knows nobody at this email. `weak_match`: Apollo matched with less than high confidence (never guessed). `no_linkedin_on_match`: matched, but no LinkedIn profile is known. `unrecognised_linkedin_url`: the URL on the match is not a member profile.",
+      }),
+    provenance: z
+      .object({
+        source: z.enum(["apollo_people_match_by_email", "user_record"]),
+        matchedOnEmail: z.string().nullable().openapi({ description: "The email the answer was resolved for (lower-cased). null for `no_email_on_record`." }),
+        matchConfidence: z.string().nullable().openapi({ description: "Apollo's match_confidence, verbatim. Only `high` is accepted as found." }),
+        apolloPersonId: z.string().nullable(),
+        resolvedAt: z.string().openapi({ description: "ISO timestamp of the resolve." }),
+      })
+      .nullable()
+      .openapi({ description: "null exactly when status is `not_looked_up`." }),
+  })
+  .openapi("UserLinkedinProfile");
+
+const UserLinkedinProfileResolveResponseSchema = UserLinkedinProfileSchema.extend({
+  lookedUpNow: z.boolean().openapi({ description: "true = this call asked the vendor (platform-billed in apollo-service). false = the stored answer was reused, nothing spent." }),
+}).openapi("UserLinkedinProfileResolveResponse");
+
+registry.registerPath({
+  method: "get",
+  path: "/internal/users/{userId}/linkedin-profile",
+  summary: "A user's own LinkedIn profile (stored answer, never spends)",
+  description:
+    "Reads what a previous resolve found for this user's CURRENT email: `found` with the URL, `none_found` with a reason, or `not_looked_up`. Keyed on the internal user id (the gateway's `x-user-id`). Never calls a vendor.",
+  security: [{ ApiKeyAuth: [] }],
+  request: { params: UserLinkedinProfileParamsSchema },
+  responses: {
+    200: { description: "The stored answer", content: { "application/json": { schema: UserLinkedinProfileSchema } } },
+    400: { description: "userId is not a uuid", content: { "application/json": { schema: ErrorResponseSchema } } },
+    401: { description: "Unauthorized", content: { "application/json": { schema: ErrorResponseSchema } } },
+    404: { description: "`reason: user_not_found`", content: { "application/json": { schema: ReasonedErrorSchema } } },
+    500: { description: "Read failed", content: { "application/json": { schema: ErrorResponseSchema } } },
+  },
+});
+
+registry.registerPath({
+  method: "post",
+  path: "/internal/users/{userId}/linkedin-profile/resolve",
+  summary: "Resolve a user's own LinkedIn profile once, then reuse it",
+  description:
+    "Idempotent. When an answer is stored for the user's current email it is returned as is (`lookedUpNow: false`, nothing spent). Otherwise asks apollo-service `POST /internal/person-identity` (Apollo people/match by EMAIL only, never by name; platform-billed and declared by apollo-service: 1 apollo-credit when matched, 0 otherwise), keeps only a `high` confidence match with a LinkedIn member URL, stores the verdict and returns it. Never answers `not_looked_up`. A vendor failure stores nothing and answers 502.",
+  security: [{ ApiKeyAuth: [] }],
+  request: { params: UserLinkedinProfileParamsSchema },
+  responses: {
+    200: { description: "The answer (found or none_found)", content: { "application/json": { schema: UserLinkedinProfileResolveResponseSchema } } },
+    400: { description: "userId is not a uuid", content: { "application/json": { schema: ErrorResponseSchema } } },
+    401: { description: "Unauthorized", content: { "application/json": { schema: ErrorResponseSchema } } },
+    404: { description: "`reason: user_not_found`", content: { "application/json": { schema: ReasonedErrorSchema } } },
+    502: { description: "`reason: person_lookup_unavailable`: apollo-service failed. Nothing stored; retry later.", content: { "application/json": { schema: ReasonedErrorSchema } } },
+  },
+});
