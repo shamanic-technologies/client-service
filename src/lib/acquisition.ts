@@ -31,7 +31,7 @@ export type AcquisitionInput = {
   firstSeenAt?: string | null;
 };
 
-export type RecordedVia = "resolve" | "org_id" | "external_ids" | "absorbed_shell";
+export type RecordedVia = "resolve" | "org_id" | "external_ids" | "absorbed_shell" | "agent_signup";
 
 /** Anything that can run a query: the db, or an open transaction. */
 type Executor = Pick<typeof db, "select" | "insert">;

@@ -134,6 +134,13 @@
       "when": 1780588800002,
       "tag": "0018_user_linkedin_profiles",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1780588800003,
+      "tag": "0019_agent_signup",
+      "breakpoints": true
     }
   ]
 }
