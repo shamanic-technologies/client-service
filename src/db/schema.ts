@@ -360,3 +360,27 @@ export const userLinkedinProfiles = pgTable(
 );
 
 export type UserLinkedinProfile = typeof userLinkedinProfiles.$inferSelect;
+
+/**
+ * An org created for a NEW CLIENT on a staff member's behalf (POST /internal/orgs).
+ * Who asked, and the caller's idempotency key: a retry with the same key and the
+ * same user returns this org instead of creating a second one. Cascades with the org.
+ */
+export const orgCreations = pgTable(
+  "org_creations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    orgId: uuid("org_id")
+      .notNull()
+      .references(() => orgs.id, { onDelete: "cascade" }),
+    createdByUserId: uuid("created_by_user_id").notNull(),
+    idempotencyKey: text("idempotency_key"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("idx_org_creations_org").on(table.orgId),
+    uniqueIndex("idx_org_creations_key")
+      .on(table.createdByUserId, table.idempotencyKey)
+      .where(sql`${table.idempotencyKey} IS NOT NULL`),
+  ]
+);

@@ -363,3 +363,145 @@ export async function createClerkEmailAccount(email: string, orgName: string): P
     throw new ClerkServiceError(errorStatus(err), errorBody(err));
   }
 }
+
+/**
+ * Create a Clerk organization for a NEW CLIENT on behalf of a staff member
+ * (POST /internal/orgs). `createdBy` makes the acting user an admin of it, so
+ * they can keep working in it; `onboardingComplete` is the dashboard's
+ * first-run flag (`proxy.ts`), set here so the client is never pushed back into
+ * the signup walk. Fail loud: any Clerk failure throws ClerkServiceError.
+ */
+export async function createClerkClientOrganization(
+  createdByClerkUserId: string,
+  orgName: string,
+): Promise<ClerkOrganizationRef> {
+  const clerk = await getClerkClient({ method: "POST", path: "/internal/orgs" });
+  try {
+    const org = await clerk.organizations.createOrganization({
+      name: orgName,
+      createdBy: createdByClerkUserId,
+      publicMetadata: { onboardingComplete: true },
+    });
+    return { clerkOrgId: org.id, slug: org.slug ?? null };
+  } catch (err: unknown) {
+    throw new ClerkServiceError(errorStatus(err), errorBody(err));
+  }
+}
+
+/** A pending (or just-revoked) invitation into a Clerk organization. */
+export interface ClerkOrgInvitation {
+  id: string;
+  email: string;
+  role: string;
+  status: string;
+  url: string | null;
+  createdAt: number;
+  expiresAt: number;
+}
+
+function toInvitation(i: {
+  id: string;
+  emailAddress: string;
+  role: string;
+  status?: string;
+  url: string | null;
+  createdAt: number;
+  expiresAt: number;
+}): ClerkOrgInvitation {
+  return {
+    id: i.id,
+    email: i.emailAddress,
+    role: i.role,
+    status: i.status ?? "pending",
+    url: i.url,
+    createdAt: i.createdAt,
+    expiresAt: i.expiresAt,
+  };
+}
+
+const MEMBER_INVITATIONS_PATH = "/internal/orgs/:orgId/member-invitations";
+
+/**
+ * Every PENDING invitation of a Clerk organization, read live. Any failure
+ * throws ClerkServiceError: "could not ask" must never read as "none pending",
+ * or a re-invite creates a second invitation.
+ */
+export async function listClerkPendingInvitations(clerkOrgId: string): Promise<ClerkOrgInvitation[]> {
+  const clerk = await getClerkClient({ method: "GET", path: MEMBER_INVITATIONS_PATH });
+  const out: ClerkOrgInvitation[] = [];
+  try {
+    for (let offset = 0; ; offset += CLERK_PAGE_LIMIT) {
+      const page = await clerk.organizations.getOrganizationInvitationList({
+        organizationId: clerkOrgId,
+        status: ["pending"],
+        limit: CLERK_PAGE_LIMIT,
+        offset,
+      });
+      for (const i of page.data) out.push(toInvitation(i));
+      if (page.data.length < CLERK_PAGE_LIMIT || out.length >= page.totalCount) break;
+    }
+    return out;
+  } catch (err: unknown) {
+    throw new ClerkServiceError(errorStatus(err), errorBody(err));
+  }
+}
+
+/**
+ * Invite `email` into a Clerk organization. Clerk stores the invitation and
+ * emails it; the returned `url` is the same link, for the inviter to forward
+ * by hand. Fail loud: any Clerk failure (a refusal included: already a member,
+ * inviter not allowed) throws ClerkServiceError with Clerk's status and words.
+ */
+export async function createClerkOrgInvitation(input: {
+  clerkOrgId: string;
+  email: string;
+  role: string;
+  inviterClerkUserId: string;
+  redirectUrl: string;
+}): Promise<ClerkOrgInvitation> {
+  const clerk = await getClerkClient({ method: "POST", path: MEMBER_INVITATIONS_PATH });
+  try {
+    const invitation = await clerk.organizations.createOrganizationInvitation({
+      organizationId: input.clerkOrgId,
+      emailAddress: input.email,
+      role: input.role,
+      inviterUserId: input.inviterClerkUserId,
+      redirectUrl: input.redirectUrl,
+    });
+    return toInvitation(invitation);
+  } catch (err: unknown) {
+    throw new ClerkServiceError(errorStatus(err), errorBody(err));
+  }
+}
+
+/**
+ * Revoke one invitation of a Clerk organization. A 404 (unknown id, or an id
+ * of ANOTHER organization) resolves to "not_found". Any other failure throws.
+ */
+export async function revokeClerkOrgInvitation(
+  clerkOrgId: string,
+  invitationId: string,
+): Promise<ClerkOrgInvitation | "not_found"> {
+  const clerk = await getClerkClient({ method: "DELETE", path: `${MEMBER_INVITATIONS_PATH}/:invitationId` });
+  try {
+    const invitation = await clerk.organizations.revokeOrganizationInvitation({
+      organizationId: clerkOrgId,
+      invitationId,
+    });
+    return toInvitation(invitation);
+  } catch (err: unknown) {
+    if (isNotFound(err)) return "not_found";
+    throw new ClerkServiceError(errorStatus(err), errorBody(err));
+  }
+}
+
+/** Clerk's own sentence for a refusal, when it gave one. */
+export function clerkErrorMessage(body: string): string {
+  try {
+    const errors = JSON.parse(body) as Array<{ longMessage?: string; message?: string }>;
+    const first = Array.isArray(errors) ? errors[0] : undefined;
+    return first?.longMessage ?? first?.message ?? body;
+  } catch {
+    return body;
+  }
+}

@@ -1875,6 +1875,166 @@
           "email",
           "code"
         ]
+      },
+      "CreatedOrg": {
+        "type": "object",
+        "properties": {
+          "orgId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Internal org uuid: the `x-org-id` every other service keys on (billing, brand, campaign, ...). Served at once by GET /internal/orgs/{orgId}."
+          },
+          "name": {
+            "type": "string"
+          },
+          "slug": {
+            "type": "string",
+            "nullable": true
+          },
+          "clerkOrgId": {
+            "type": "string",
+            "description": "Identity-provider (Clerk) org id."
+          },
+          "createdByUserId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "onboardingComplete": {
+            "type": "boolean",
+            "enum": [
+              true
+            ],
+            "description": "The dashboard's first-run flag is set: the client is never sent back to the signup walk."
+          },
+          "created": {
+            "type": "boolean",
+            "description": "false = an idempotent replay returned the org an earlier call with the same key created."
+          }
+        },
+        "required": [
+          "orgId",
+          "name",
+          "slug",
+          "clerkOrgId",
+          "createdByUserId",
+          "onboardingComplete",
+          "created"
+        ]
+      },
+      "ServiceError": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "error",
+          "message"
+        ]
+      },
+      "CreateOrgBody": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120,
+            "description": "The client organization's display name.",
+            "example": "Acme Inc"
+          },
+          "createdByUserId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Internal user uuid of the acting (staff) user, as the gateway sends in `x-user-id`. They become an admin of the new org, so they can keep working in it and invite the client."
+          },
+          "idempotencyKey": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "description": "Optional. A retry by the same user with the same key returns the org the first call created (200, `created: false`), even under concurrent calls. Without a key every call creates a new org."
+          }
+        },
+        "required": [
+          "name",
+          "createdByUserId"
+        ]
+      },
+      "MemberInvitation": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string",
+            "description": "Always `org:admin`: one role per team (same as the dashboard's invite form)."
+          },
+          "status": {
+            "type": "string",
+            "description": "`pending` while it can be accepted; `revoked` in the revoke response."
+          },
+          "inviteUrl": {
+            "type": "string",
+            "nullable": true,
+            "description": "The link the invitee opens to join (the same one the identity provider emails them), for the inviter to forward by hand. It lands on the dashboard's /invite page, which signs the person in or up inside THIS org. Never null on a creation response."
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "expiresAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "email",
+          "role",
+          "status",
+          "inviteUrl",
+          "createdAt",
+          "expiresAt"
+        ]
+      },
+      "MemberInvitationCreateBody": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "maxLength": 320,
+            "format": "email",
+            "example": "jane@acme.com"
+          },
+          "invitedByUserId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Internal user uuid of the inviter (the gateway's `x-user-id`). Must be an admin of the org at the identity provider; every member invited through the product is one."
+          }
+        },
+        "required": [
+          "email",
+          "invitedByUserId"
+        ]
+      },
+      "MemberInvitationList": {
+        "type": "object",
+        "properties": {
+          "invitations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MemberInvitation"
+            }
+          }
+        },
+        "required": [
+          "invitations"
+        ]
       }
     },
     "parameters": {}
@@ -4114,6 +4274,413 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/AgentSignupError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/internal/orgs": {
+      "post": {
+        "summary": "Create an organization for a new client, on behalf of the acting user",
+        "description": "Creates an ordinary customer org: an identity-provider (Clerk) organization the acting user administers, its onboarding marked complete, and the internal org uuid, immediately usable for brands, offers, audiences and campaigns. The acting user's current org is not changed (they switch to it in the dashboard). Touches nothing else: no billing account, no credit, no first touch. Staff gating is the caller's (the gateway); this service only checks the acting user exists. Idempotent only with `idempotencyKey`.",
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateOrgBody"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Replay: same user and idempotencyKey as an earlier call, that call's org is returned",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreatedOrg"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "Org created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreatedOrg"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`invalid_request`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`user_not_found`: no user with an identity-provider account has `createdByUserId`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceError"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "`identity_provider_failed`: Clerk refused or failed; nothing half-made is kept, retry",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/internal/orgs/{orgId}/member-invitations": {
+      "post": {
+        "summary": "Invite a person into an org by email (idempotent while pending)",
+        "description": "Creates an identity-provider invitation: the person gets an email, and the response carries the same link to forward by hand. Idempotent per (org, email) while an invitation is pending: the pending one is returned (200, `created: false`), never a second one. Any member may invite; the caller (gateway) scopes the org to the authenticated user. Not the referral invites at /internal/invites.",
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Internal org uuid."
+            },
+            "required": true,
+            "description": "Internal org uuid.",
+            "name": "orgId",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MemberInvitationCreateBody"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "A pending invitation for this email already existed and is returned",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "invitation": {
+                      "$ref": "#/components/schemas/MemberInvitation"
+                    },
+                    "created": {
+                      "type": "boolean",
+                      "enum": [
+                        false
+                      ]
+                    }
+                  },
+                  "required": [
+                    "invitation",
+                    "created"
+                  ]
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "Invitation created and emailed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "invitation": {
+                      "$ref": "#/components/schemas/MemberInvitation"
+                    },
+                    "created": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    }
+                  },
+                  "required": [
+                    "invitation",
+                    "created"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`invalid_request`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`org_not_found` or `user_not_found` (inviter)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`org_has_no_identity`: a signed-out onboarding org not yet claimed, or an absorbed shell",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceError"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "`invitation_refused`: the identity provider refused (already a member, inviter not an admin, ...); `message` is its sentence, safe to show",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceError"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "`identity_provider_failed`, or `invite_link_unavailable` (invitation emailed but no link returned)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "summary": "List an org's pending invitations",
+        "description": "Read live from the identity provider. A failed read is a 502, never an empty list.",
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Internal org uuid."
+            },
+            "required": true,
+            "description": "Internal org uuid.",
+            "name": "orgId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Pending invitations",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemberInvitationList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`org_not_found`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`org_has_no_identity`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceError"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "`identity_provider_failed`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/internal/orgs/{orgId}/member-invitations/{invitationId}": {
+      "delete": {
+        "summary": "Revoke a pending invitation",
+        "description": "The link stops working at once. An id that is not one of this org's invitations is a 404.",
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Internal org uuid."
+            },
+            "required": true,
+            "description": "Internal org uuid.",
+            "name": "orgId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100,
+              "description": "Invitation id, as listed or returned at creation (`orginv_...`)."
+            },
+            "required": true,
+            "description": "Invitation id, as listed or returned at creation (`orginv_...`).",
+            "name": "invitationId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Revoked",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "invitation": {
+                      "$ref": "#/components/schemas/MemberInvitation"
+                    }
+                  },
+                  "required": [
+                    "invitation"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`org_not_found` or `invitation_not_found`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`org_has_no_identity`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceError"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "`invitation_refused`: e.g. already accepted or already revoked; `message` is the identity provider's sentence",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceError"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "`identity_provider_failed`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceError"
                 }
               }
             }
