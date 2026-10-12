@@ -201,3 +201,41 @@ export async function notifyProductTaskCompleted(params: {
     throw new BillingServiceError(res.status, await res.text());
   }
 }
+
+/**
+ * Mark a freshly signed-up AI-agent org at billing-service, via
+ * `PUT /internal/accounts/by-org/{orgId}/agent-api-signup`, BEFORE anything else
+ * touches billing for that org.
+ *
+ * Why first: billing cannot tell an agent org on its first touch, and an
+ * unmarked org's first billing read creates an ordinary account with its
+ * welcome advance. The marker creates the account as `agent_api` instead: no
+ * welcome, no advance, no match, no trial, no grant of any kind, ever (owner
+ * 2026-10-12: "no free credits nor free trial with them to avoid free riders.
+ * Everything needs to be paid upfront.").
+ *
+ * Idempotent: the "email already has an account" path calls it again, which is
+ * what makes a provision whose marker call failed converge on retry.
+ *
+ * Fail loud: any non-2xx throws BillingServiceError.
+ */
+export async function markAgentApiSignup(orgId: string): Promise<void> {
+  const baseUrl = process.env.BILLING_SERVICE_URL;
+  const apiKey = process.env.BILLING_SERVICE_API_KEY;
+  if (!baseUrl) {
+    throw new Error("[client-service] BILLING_SERVICE_URL not configured");
+  }
+  if (!apiKey) {
+    throw new Error("[client-service] BILLING_SERVICE_API_KEY not configured");
+  }
+
+  const url = `${baseUrl.replace(/\/$/, "")}/internal/accounts/by-org/${encodeURIComponent(orgId)}/agent-api-signup`;
+  const res = await fetchWithRetry(url, {
+    method: "PUT",
+    headers: { "x-api-key": apiKey },
+  });
+
+  if (!res.ok) {
+    throw new BillingServiceError(res.status, await res.text());
+  }
+}

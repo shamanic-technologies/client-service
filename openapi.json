@@ -96,9 +96,10 @@
               "resolve",
               "org_id",
               "external_ids",
-              "absorbed_shell"
+              "absorbed_shell",
+              "agent_signup"
             ],
-            "description": "Which hand-over recorded it. `absorbed_shell`: recorded on a shell org by an ordinary-signup hand-over, then moved to the org it was absorbed into at claim."
+            "description": "Which hand-over recorded it. `absorbed_shell`: recorded on a shell org by an ordinary-signup hand-over, then moved to the org it was absorbed into at claim. `agent_signup`: the org was created by an AI agent's email-code signup (POST /internal/agent-signups/complete); its channel is `agent_api`."
           },
           "recordedAt": {
             "type": "string"
@@ -1728,6 +1729,135 @@
               "lookedUpNow"
             ]
           }
+        ]
+      },
+      "AgentSignupStartResponse": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string"
+          },
+          "expiresAt": {
+            "type": "string",
+            "description": "ISO instant after which this code is refused (`code_expired`)."
+          },
+          "codeTtlMinutes": {
+            "type": "integer"
+          },
+          "maxAttempts": {
+            "type": "integer",
+            "description": "Wrong guesses allowed on this code before it dies (`too_many_attempts`)."
+          }
+        },
+        "required": [
+          "email",
+          "expiresAt",
+          "codeTtlMinutes",
+          "maxAttempts"
+        ]
+      },
+      "AgentSignupError": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "string",
+            "description": "Named error: `invalid_request`, `no_pending_code`, `code_invalid`, `code_expired`, `too_many_attempts`, `code_email_failed`, `identity_provider_failed`, `billing_unavailable`."
+          },
+          "message": {
+            "type": "string"
+          },
+          "attemptsLeft": {
+            "type": "integer",
+            "description": "On `code_invalid` only: wrong guesses left on this code."
+          }
+        },
+        "required": [
+          "error",
+          "message"
+        ]
+      },
+      "AgentSignupStartBody": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "maxLength": 254,
+            "format": "email",
+            "description": "The person's real email. Case-insensitive; stored lowercased.",
+            "example": "agent@example.com"
+          },
+          "phone": {
+            "type": "string",
+            "pattern": "^\\+[1-9]\\d{6,14}$",
+            "description": "Urgent-contact phone (WhatsApp) for the person, E.164. Format-checked only, never verified (owner decision 2026-10-12).",
+            "example": "+33612345678"
+          }
+        },
+        "required": [
+          "email",
+          "phone"
+        ]
+      },
+      "AgentSignupCompleteResponse": {
+        "type": "object",
+        "properties": {
+          "orgId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Internal org uuid (the platform's x-org-id)."
+          },
+          "userId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Internal user uuid (the platform's x-user-id)."
+          },
+          "email": {
+            "type": "string"
+          },
+          "contactPhone": {
+            "type": "string",
+            "nullable": true,
+            "description": "The urgent-contact phone now on the user."
+          },
+          "clerkOrgId": {
+            "type": "string"
+          },
+          "clerkUserId": {
+            "type": "string"
+          },
+          "created": {
+            "type": "boolean",
+            "description": "true = this call created the account; false = the email already had one and it is returned."
+          }
+        },
+        "required": [
+          "orgId",
+          "userId",
+          "email",
+          "contactPhone",
+          "clerkOrgId",
+          "clerkUserId",
+          "created"
+        ]
+      },
+      "AgentSignupCompleteBody": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "maxLength": 254,
+            "format": "email",
+            "description": "The person's real email. Case-insensitive; stored lowercased.",
+            "example": "agent@example.com"
+          },
+          "code": {
+            "type": "string",
+            "pattern": "^\\d{6}$"
+          }
+        },
+        "required": [
+          "email",
+          "code"
         ]
       }
     },
@@ -3814,6 +3944,160 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ReasonedError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/internal/agent-signups/start": {
+      "post": {
+        "summary": "AI agent signup, step 1: email a 6-digit one-time code to the person",
+        "description": "Sends a fresh 6-digit code to `email` (platform-paid, no org exists yet) and remembers `phone` for the account. Every call sends a NEW code and kills the earlier ones for that email. No cap per email or per caller (owner: block nothing); each code expires and allows a few wrong guesses. Nothing is created in the identity provider at this step. Staff get a Telegram line.",
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AgentSignupStartBody"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Code sent",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentSignupStartResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`invalid_request`: bad email or phone",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentSignupError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "`code_email_failed`: the email could not be sent; the code is not usable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentSignupError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/internal/agent-signups/complete": {
+      "post": {
+        "summary": "AI agent signup, step 2: trade the code for a full account (idempotent per email)",
+        "description": "Checks the code and returns the account for that email. A new email gets a full signup-equivalent account: identity-provider user carrying the REAL email (the person can sign in to the dashboard with it, no claim step), its organization, internal uuids, the phone as the user's urgent contact, and a first touch with channel `agent_api` (recordedVia `agent_signup`, readable at GET /internal/orgs/{orgId}/acquisition). NO free money: the org's billing account is created through billing-service's agent-signup marker (PUT /internal/accounts/by-org/{orgId}/agent-api-signup) BEFORE anything else can touch billing for it, so it never gets a welcome credit, advance, match or trial; the ordinary welcome path is never called. An email that already has an account returns it (`created: false`); the code proves ownership, so the caller may mint a new API key for it. A code may be redeemed again within its lifetime and returns the same account.",
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AgentSignupCompleteBody"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Account created or returned",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentSignupCompleteResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`invalid_request` (bad body) or `code_invalid` (wrong code; `attemptsLeft` says how many guesses remain)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentSignupError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`no_pending_code`: no code was ever sent to this email, or a newer one replaced it",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentSignupError"
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "`code_expired`: request a new code",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentSignupError"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "`too_many_attempts`: this code is dead after too many wrong guesses; request a new one",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentSignupError"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "`identity_provider_failed`: Clerk refused or failed (nothing half-made is kept), or `billing_unavailable`: billing-service could not mark the org; retry with the same code",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentSignupError"
                 }
               }
             }

@@ -72,6 +72,13 @@ export const users = pgTable(
     lastName: text("last_name"),
     imageUrl: text("image_url"),
     phone: text("phone"),
+    /**
+     * Urgent-contact phone (WhatsApp) stated by the AI agent that signed this
+     * person up. Format-checked, never verified. Deliberately NOT `phone`: that
+     * column is the WhatsApp channel's unique mapping key, and an unverified
+     * number must never decide whose account an inbound message lands in.
+     */
+    contactPhone: text("contact_phone"),
     orgId: uuid("org_id").references(() => orgs.id),
     metadata: jsonb("metadata"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -258,17 +265,49 @@ export const orgAcquisitions = pgTable(
     referralCode: text("referral_code"),
     /** When the browser says it first saw the visitor. Untrusted, kept as stated. */
     firstSeenAt: timestamp("first_seen_at", { withTimezone: true }),
-    /** Which hand-over recorded it. `absorbed_shell`: moved off a shell at claim. */
+    /**
+     * Which hand-over recorded it. `absorbed_shell`: moved off a shell at claim.
+     * `agent_signup`: the org was created by an AI agent's email-code signup
+     * (`src/lib/agent-signup.ts`), channel `agent_api`.
+     */
     recordedVia: text("recorded_via").notNull(),
     recordedAt: timestamp("recorded_at", { withTimezone: true }).notNull().defaultNow(),
   },
   () => [
     check(
       "org_acquisitions_recorded_via_check",
-      sql`recorded_via IN ('resolve', 'org_id', 'external_ids', 'absorbed_shell')`,
+      sql`recorded_via IN ('resolve', 'org_id', 'external_ids', 'absorbed_shell', 'agent_signup')`,
     ),
   ]
 );
+
+/**
+ * One row per one-time code SENT for an AI agent's email signup
+ * (`src/lib/agent-signup.ts`). Only the hash is stored. A newer code for the
+ * same email supersedes the older ones; `attempts` counts wrong guesses against
+ * this code; `consumed_at` is set once the account was handed out for it.
+ */
+export const agentSignupCodes = pgTable(
+  "agent_signup_codes",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    email: text("email").notNull(),
+    phone: text("phone").notNull(),
+    codeHash: text("code_hash").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    attempts: integer("attempts").notNull().default(0),
+    supersededAt: timestamp("superseded_at", { withTimezone: true }),
+    consumedAt: timestamp("consumed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("idx_agent_signup_codes_email").on(table.email, table.createdAt),
+    check("agent_signup_codes_email_lower", sql`${table.email} = lower(${table.email})`),
+    check("agent_signup_codes_attempts_nonneg", sql`${table.attempts} >= 0`),
+  ]
+);
+
+export type AgentSignupCode = typeof agentSignupCodes.$inferSelect;
 
 export const waitlist = pgTable("waitlist", {
   id: uuid("id").primaryKey().defaultRandom(),

@@ -261,3 +261,105 @@ export async function getClerkOrganizationNames(
     throw new ClerkServiceError(errorStatus(err), errorBody(err));
   }
 }
+
+/** Route label key-service records for the agent-signup Clerk calls. */
+const AGENT_SIGNUP_CALLER = { method: "POST", path: "/internal/agent-signups/complete" };
+
+/**
+ * Server-only marker on a Clerk user created by an AI agent's signup. It is what
+ * lets a retry after a half-finished provision (Clerk user made, our rows not)
+ * still recognise the account as agent-born and keep it off free money.
+ */
+export const AGENT_SIGNUP_SOURCE = "agent_api";
+
+export interface ClerkUserByEmail {
+  clerkUserId: string;
+  /** `privateMetadata.signupSource`, when the user carries one. */
+  signupSource: string | null;
+}
+
+/**
+ * The Clerk user that owns `email` as one of its addresses, or null when Clerk
+ * knows nobody with it. Any failure throws ClerkServiceError: "could not ask"
+ * must never read as "nobody has this email", or a second account is created.
+ */
+export async function findClerkUserByEmail(email: string): Promise<ClerkUserByEmail | null> {
+  const clerk = await getClerkClient(AGENT_SIGNUP_CALLER);
+  try {
+    const page = await clerk.users.getUserList({ emailAddress: [email], limit: 2 });
+    const user = page.data[0];
+    if (!user) return null;
+    const source = (user.privateMetadata as { signupSource?: unknown } | null | undefined)?.signupSource;
+    return { clerkUserId: user.id, signupSource: typeof source === "string" ? source : null };
+  } catch (err: unknown) {
+    throw new ClerkServiceError(errorStatus(err), errorBody(err));
+  }
+}
+
+export interface ClerkOrganizationRef {
+  clerkOrgId: string;
+  slug: string | null;
+}
+
+/**
+ * Create a Clerk organization administered by `clerkUserId` (createdBy), as a
+ * dashboard signup does. Fail loud: any Clerk failure throws ClerkServiceError.
+ */
+export async function createClerkOrganizationFor(
+  clerkUserId: string,
+  orgName: string,
+): Promise<ClerkOrganizationRef> {
+  const clerk = await getClerkClient(AGENT_SIGNUP_CALLER);
+  try {
+    const org = await clerk.organizations.createOrganization({ name: orgName, createdBy: clerkUserId });
+    return { clerkOrgId: org.id, slug: org.slug ?? null };
+  } catch (err: unknown) {
+    throw new ClerkServiceError(errorStatus(err), errorBody(err));
+  }
+}
+
+export interface ClerkEmailAccount extends ClerkOrganizationRef {
+  clerkUserId: string;
+}
+
+/**
+ * Create a signup-equivalent Clerk identity for a REAL email the caller has
+ * proven (a one-time code sent to it came back): a Clerk user carrying that
+ * email, plus an organization it administers.
+ *
+ * Unlike the phone account, the email is the person's own, so the user can sign
+ * in to the dashboard with it straight away (email code), no claim step.
+ * Admin-created, so Clerk records the address as verified without mailing it.
+ * No password (skipPasswordRequirement): the person signs in by email code.
+ * The user carries `privateMetadata.signupSource = "agent_api"` (server-only).
+ *
+ * Fail loud: any Clerk failure throws ClerkServiceError. If the user was created
+ * but the org creation failed, the orphan user is deleted before the throw so a
+ * retry finds nobody with the email and recreates cleanly.
+ */
+export async function createClerkEmailAccount(email: string, orgName: string): Promise<ClerkEmailAccount> {
+  const clerk = await getClerkClient(AGENT_SIGNUP_CALLER);
+  let clerkUserId: string | undefined;
+  try {
+    const user = await clerk.users.createUser({
+      emailAddress: [email],
+      skipPasswordRequirement: true,
+      privateMetadata: { signupSource: AGENT_SIGNUP_SOURCE },
+    });
+    clerkUserId = user.id;
+    const org = await clerk.organizations.createOrganization({ name: orgName, createdBy: user.id });
+    return { clerkUserId: user.id, clerkOrgId: org.id, slug: org.slug ?? null };
+  } catch (err: unknown) {
+    if (clerkUserId) {
+      try {
+        await clerk.users.deleteUser(clerkUserId);
+      } catch (cleanupErr) {
+        console.error(
+          `[client-service] Failed to clean up orphan Clerk user ${clerkUserId} after agent-signup create error:`,
+          cleanupErr,
+        );
+      }
+    }
+    throw new ClerkServiceError(errorStatus(err), errorBody(err));
+  }
+}

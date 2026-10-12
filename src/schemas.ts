@@ -393,9 +393,9 @@ const StoredAcquisitionSchema = z
     gclid: z.string().nullable(),
     referralCode: z.string().nullable(),
     firstSeenAt: z.string().nullable(),
-    recordedVia: z.enum(["resolve", "org_id", "external_ids", "absorbed_shell"]).openapi({
+    recordedVia: z.enum(["resolve", "org_id", "external_ids", "absorbed_shell", "agent_signup"]).openapi({
       description:
-        "Which hand-over recorded it. `absorbed_shell`: recorded on a shell org by an ordinary-signup hand-over, then moved to the org it was absorbed into at claim.",
+        "Which hand-over recorded it. `absorbed_shell`: recorded on a shell org by an ordinary-signup hand-over, then moved to the org it was absorbed into at claim. `agent_signup`: the org was created by an AI agent's email-code signup (POST /internal/agent-signups/complete); its channel is `agent_api`.",
     }),
     recordedAt: z.string(),
   })
@@ -1643,5 +1643,117 @@ registry.registerPath({
     401: { description: "Unauthorized", content: { "application/json": { schema: ErrorResponseSchema } } },
     404: { description: "`reason: user_not_found`", content: { "application/json": { schema: ReasonedErrorSchema } } },
     502: { description: "`reason: person_lookup_unavailable`: apollo-service failed. Nothing stored; retry later.", content: { "application/json": { schema: ReasonedErrorSchema } } },
+  },
+});
+
+// --- Agent signups (an AI agent opens an account by itself: email + code) ---
+
+const AgentSignupEmail = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .max(254)
+  .email()
+  .openapi({ description: "The person's real email. Case-insensitive; stored lowercased.", example: "agent@example.com" });
+
+export const AgentSignupStartBodySchema = z
+  .object({
+    email: AgentSignupEmail,
+    phone: E164Phone.openapi({
+      description:
+        "Urgent-contact phone (WhatsApp) for the person, E.164. Format-checked only, never verified (owner decision 2026-10-12).",
+      example: "+33612345678",
+    }),
+  })
+  .openapi("AgentSignupStartBody");
+
+const AgentSignupStartResponseSchema = z
+  .object({
+    email: z.string(),
+    expiresAt: z.string().openapi({ description: "ISO instant after which this code is refused (`code_expired`)." }),
+    codeTtlMinutes: z.number().int(),
+    maxAttempts: z.number().int().openapi({ description: "Wrong guesses allowed on this code before it dies (`too_many_attempts`)." }),
+  })
+  .openapi("AgentSignupStartResponse");
+
+export const AgentSignupCompleteBodySchema = z
+  .object({
+    email: AgentSignupEmail,
+    code: z.string().trim().regex(/^\d{6}$/, "code must be the 6 digits from the email"),
+  })
+  .openapi("AgentSignupCompleteBody");
+
+const AgentSignupCompleteResponseSchema = z
+  .object({
+    orgId: z.string().uuid().openapi({ description: "Internal org uuid (the platform's x-org-id)." }),
+    userId: z.string().uuid().openapi({ description: "Internal user uuid (the platform's x-user-id)." }),
+    email: z.string(),
+    contactPhone: z.string().nullable().openapi({ description: "The urgent-contact phone now on the user." }),
+    clerkOrgId: z.string(),
+    clerkUserId: z.string(),
+    created: z
+      .boolean()
+      .openapi({ description: "true = this call created the account; false = the email already had one and it is returned." }),
+  })
+  .openapi("AgentSignupCompleteResponse");
+
+const AgentSignupErrorSchema = z
+  .object({
+    error: z.string().openapi({
+      description:
+        "Named error: `invalid_request`, `no_pending_code`, `code_invalid`, `code_expired`, `too_many_attempts`, `code_email_failed`, `identity_provider_failed`, `billing_unavailable`.",
+    }),
+    message: z.string(),
+    attemptsLeft: z.number().int().optional().openapi({ description: "On `code_invalid` only: wrong guesses left on this code." }),
+  })
+  .openapi("AgentSignupError");
+
+registry.registerPath({
+  method: "post",
+  path: "/internal/agent-signups/start",
+  summary: "AI agent signup, step 1: email a 6-digit one-time code to the person",
+  description:
+    "Sends a fresh 6-digit code to `email` (platform-paid, no org exists yet) and remembers `phone` for the account. Every call sends a NEW code and kills the earlier ones for that email. No cap per email or per caller (owner: block nothing); each code expires and allows a few wrong guesses. Nothing is created in the identity provider at this step. Staff get a Telegram line.",
+  security: [{ ApiKeyAuth: [] }],
+  request: { body: { content: { "application/json": { schema: AgentSignupStartBodySchema } } } },
+  responses: {
+    200: { description: "Code sent", content: { "application/json": { schema: AgentSignupStartResponseSchema } } },
+    400: { description: "`invalid_request`: bad email or phone", content: { "application/json": { schema: AgentSignupErrorSchema } } },
+    401: { description: "Unauthorized", content: { "application/json": { schema: ErrorResponseSchema } } },
+    502: {
+      description: "`code_email_failed`: the email could not be sent; the code is not usable",
+      content: { "application/json": { schema: AgentSignupErrorSchema } },
+    },
+  },
+});
+
+registry.registerPath({
+  method: "post",
+  path: "/internal/agent-signups/complete",
+  summary: "AI agent signup, step 2: trade the code for a full account (idempotent per email)",
+  description:
+    "Checks the code and returns the account for that email. A new email gets a full signup-equivalent account: identity-provider user carrying the REAL email (the person can sign in to the dashboard with it, no claim step), its organization, internal uuids, the phone as the user's urgent contact, and a first touch with channel `agent_api` (recordedVia `agent_signup`, readable at GET /internal/orgs/{orgId}/acquisition). NO free money: the org's billing account is created through billing-service's agent-signup marker (PUT /internal/accounts/by-org/{orgId}/agent-api-signup) BEFORE anything else can touch billing for it, so it never gets a welcome credit, advance, match or trial; the ordinary welcome path is never called. An email that already has an account returns it (`created: false`); the code proves ownership, so the caller may mint a new API key for it. A code may be redeemed again within its lifetime and returns the same account.",
+  security: [{ ApiKeyAuth: [] }],
+  request: { body: { content: { "application/json": { schema: AgentSignupCompleteBodySchema } } } },
+  responses: {
+    200: { description: "Account created or returned", content: { "application/json": { schema: AgentSignupCompleteResponseSchema } } },
+    400: {
+      description: "`invalid_request` (bad body) or `code_invalid` (wrong code; `attemptsLeft` says how many guesses remain)",
+      content: { "application/json": { schema: AgentSignupErrorSchema } },
+    },
+    401: { description: "Unauthorized", content: { "application/json": { schema: ErrorResponseSchema } } },
+    404: {
+      description: "`no_pending_code`: no code was ever sent to this email, or a newer one replaced it",
+      content: { "application/json": { schema: AgentSignupErrorSchema } },
+    },
+    410: { description: "`code_expired`: request a new code", content: { "application/json": { schema: AgentSignupErrorSchema } } },
+    429: {
+      description: "`too_many_attempts`: this code is dead after too many wrong guesses; request a new one",
+      content: { "application/json": { schema: AgentSignupErrorSchema } },
+    },
+    502: {
+      description: "`identity_provider_failed`: Clerk refused or failed (nothing half-made is kept), or `billing_unavailable`: billing-service could not mark the org; retry with the same code",
+      content: { "application/json": { schema: AgentSignupErrorSchema } },
+    },
   },
 });
