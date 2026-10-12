@@ -15,6 +15,7 @@ import { deleteClerkOrganization, deleteClerkUser, ClerkServiceError } from "../
 import { deleteStripeCustomerByOrg, StripeServiceError } from "../../src/lib/stripe-service-client.js";
 import {
   deleteBillingByOrg,
+  deleteBrandLinksByOrg,
   deleteCampaignsByOrg,
   deleteKeysByOrg,
   deleteRunsByOrg,
@@ -39,6 +40,7 @@ vi.mock("../../src/lib/internal-service-client.js", async (importActual) => {
     deleteCampaignsByOrg: vi.fn(),
     deleteRunsByOrg: vi.fn(),
     deleteKeysByOrg: vi.fn(),
+    deleteBrandLinksByOrg: vi.fn(),
   };
 });
 
@@ -53,6 +55,7 @@ describe("DELETE /internal/orgs/:orgId (cascade teardown)", () => {
     vi.mocked(deleteCampaignsByOrg).mockReset().mockResolvedValue("deleted");
     vi.mocked(deleteRunsByOrg).mockReset().mockResolvedValue("deleted");
     vi.mocked(deleteKeysByOrg).mockReset().mockResolvedValue("deleted");
+    vi.mocked(deleteBrandLinksByOrg).mockReset().mockResolvedValue("deleted");
     vi.mocked(deleteStripeCustomerByOrg).mockReset().mockResolvedValue("deleted");
     vi.mocked(deleteClerkOrganization).mockReset().mockResolvedValue("deleted");
     vi.mocked(deleteClerkUser).mockReset().mockResolvedValue("deleted");
@@ -119,6 +122,7 @@ describe("DELETE /internal/orgs/:orgId (cascade teardown)", () => {
       campaign: "deleted",
       runs: "deleted",
       key: "deleted",
+      brand: "deleted",
       stripe: "deleted",
       clerk: "deleted",
       clerkUsers: { deleted: 2, notFound: 0 },
@@ -146,6 +150,7 @@ describe("DELETE /internal/orgs/:orgId (cascade teardown)", () => {
     expect(vi.mocked(deleteCampaignsByOrg)).toHaveBeenCalledWith(org.id);
     expect(vi.mocked(deleteRunsByOrg)).toHaveBeenCalledWith(org.id);
     expect(vi.mocked(deleteKeysByOrg)).toHaveBeenCalledWith(org.id);
+    expect(vi.mocked(deleteBrandLinksByOrg)).toHaveBeenCalledWith(org.id);
     expect(vi.mocked(deleteStripeCustomerByOrg)).toHaveBeenCalledWith(org.id);
     expect(vi.mocked(deleteClerkOrganization)).toHaveBeenCalledWith("org_clerk_xyz");
 
@@ -153,13 +158,15 @@ describe("DELETE /internal/orgs/:orgId (cascade teardown)", () => {
     const campaignOrder = vi.mocked(deleteCampaignsByOrg).mock.invocationCallOrder[0];
     const runsOrder = vi.mocked(deleteRunsByOrg).mock.invocationCallOrder[0];
     const keyOrder = vi.mocked(deleteKeysByOrg).mock.invocationCallOrder[0];
+    const brandOrder = vi.mocked(deleteBrandLinksByOrg).mock.invocationCallOrder[0];
     const stripeOrder = vi.mocked(deleteStripeCustomerByOrg).mock.invocationCallOrder[0];
     const clerkOrder = vi.mocked(deleteClerkOrganization).mock.invocationCallOrder[0];
 
     expect(billingOrder).toBeLessThan(campaignOrder);
     expect(campaignOrder).toBeLessThan(runsOrder);
     expect(runsOrder).toBeLessThan(keyOrder);
-    expect(keyOrder).toBeLessThan(stripeOrder);
+    expect(keyOrder).toBeLessThan(brandOrder);
+    expect(brandOrder).toBeLessThan(stripeOrder);
     expect(stripeOrder).toBeLessThan(clerkOrder);
   });
 
@@ -177,6 +184,7 @@ describe("DELETE /internal/orgs/:orgId (cascade teardown)", () => {
     expect(vi.mocked(deleteCampaignsByOrg)).toHaveBeenCalledWith(ghost);
     expect(vi.mocked(deleteRunsByOrg)).toHaveBeenCalledWith(ghost);
     expect(vi.mocked(deleteKeysByOrg)).toHaveBeenCalledWith(ghost);
+    expect(vi.mocked(deleteBrandLinksByOrg)).toHaveBeenCalledWith(ghost);
     // Stripe still called defensively with the inbound UUID
     expect(vi.mocked(deleteStripeCustomerByOrg)).toHaveBeenCalledWith(ghost);
   });
@@ -197,6 +205,25 @@ describe("DELETE /internal/orgs/:orgId (cascade teardown)", () => {
     expect(res.body.upstreamStatus).toBe(500);
     expect(res.body.upstreamBody).toBe("billing boom");
 
+    expect(vi.mocked(deleteStripeCustomerByOrg)).not.toHaveBeenCalled();
+    expect(vi.mocked(deleteClerkOrganization)).not.toHaveBeenCalled();
+    const remainingOrg = await db.select().from(orgs).where(eq(orgs.id, org.id));
+    expect(remainingOrg).toHaveLength(1);
+  });
+
+  it("fails loud (502) when brand-service errors — the org and its Clerk identity survive for the retry", async () => {
+    const org = await insertTestOrg({ externalId: "org_brand_fail" });
+    vi.mocked(deleteBrandLinksByOrg).mockRejectedValueOnce(
+      new InternalServiceTeardownError("brand", 500, "brand boom"),
+    );
+
+    const res = await request(app)
+      .delete(`/internal/orgs/${org.id}`)
+      .set("x-api-key", API_KEY);
+
+    expect(res.status).toBe(502);
+    expect(res.body.provider).toBe("brand");
+    expect(res.body.upstreamBody).toBe("brand boom");
     expect(vi.mocked(deleteStripeCustomerByOrg)).not.toHaveBeenCalled();
     expect(vi.mocked(deleteClerkOrganization)).not.toHaveBeenCalled();
     const remainingOrg = await db.select().from(orgs).where(eq(orgs.id, org.id));

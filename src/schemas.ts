@@ -695,6 +695,10 @@ const OrgTeardownSummaryBaseSchema = z
     campaign: z.literal("deleted"),
     runs: z.literal("deleted"),
     key: z.literal("deleted"),
+    brand: z.literal("deleted").openapi({
+      description:
+        "brand-service forgot the org's brand memberships and per-(org, brand) rows. Brand rows are global and shared, so they stay.",
+    }),
     stripe: z.literal("deleted"),
     clerk: z.enum(["deleted", "not_found"]),
     clerkUsers: z.object({

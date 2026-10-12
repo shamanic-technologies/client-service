@@ -9,6 +9,7 @@ import { deleteClerkOrganization, deleteClerkUser } from "../../src/lib/clerk-cl
 import { deleteStripeCustomerByOrg } from "../../src/lib/stripe-service-client.js";
 import {
   deleteBillingByOrg,
+  deleteBrandLinksByOrg,
   deleteCampaignsByOrg,
   deleteKeysByOrg,
   deleteRunsByOrg,
@@ -32,6 +33,7 @@ vi.mock("../../src/lib/internal-service-client.js", async (importActual) => {
     deleteCampaignsByOrg: vi.fn(),
     deleteRunsByOrg: vi.fn(),
     deleteKeysByOrg: vi.fn(),
+    deleteBrandLinksByOrg: vi.fn(),
   };
 });
 
@@ -46,6 +48,7 @@ describe("DELETE /internal/orgs/by-external/:externalOrgId (teardown by Clerk or
     vi.mocked(deleteCampaignsByOrg).mockReset().mockResolvedValue("deleted");
     vi.mocked(deleteRunsByOrg).mockReset().mockResolvedValue("deleted");
     vi.mocked(deleteKeysByOrg).mockReset().mockResolvedValue("deleted");
+    vi.mocked(deleteBrandLinksByOrg).mockReset().mockResolvedValue("deleted");
     vi.mocked(deleteStripeCustomerByOrg).mockReset().mockResolvedValue("deleted");
     vi.mocked(deleteClerkOrganization).mockReset().mockResolvedValue("deleted");
     vi.mocked(deleteClerkUser).mockReset().mockResolvedValue("deleted");

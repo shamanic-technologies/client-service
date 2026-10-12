@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import {
   deleteBillingByOrg,
+  deleteBrandLinksByOrg,
   deleteCampaignsByOrg,
   deleteInternalServiceByOrg,
   deleteKeysByOrg,
@@ -20,6 +21,8 @@ const ENV_KEYS = [
   "RUNS_SERVICE_API_KEY",
   "KEY_SERVICE_URL",
   "KEY_SERVICE_API_KEY",
+  "BRAND_SERVICE_URL",
+  "BRAND_SERVICE_API_KEY",
 ] as const;
 
 const savedEnv = new Map<string, string | undefined>();
@@ -49,6 +52,8 @@ describe("internal producer teardown client", () => {
     process.env.RUNS_SERVICE_API_KEY = "runs-key";
     process.env.KEY_SERVICE_URL = "http://key-service.test/";
     process.env.KEY_SERVICE_API_KEY = "key-key";
+    process.env.BRAND_SERVICE_URL = "http://brand-service.test/";
+    process.env.BRAND_SERVICE_API_KEY = "brand-key";
   });
 
   afterEach(() => {
@@ -67,6 +72,7 @@ describe("internal producer teardown client", () => {
     ["campaign", deleteCampaignsByOrg, "http://campaign-service.test/internal/campaigns/by-org"],
     ["runs", deleteRunsByOrg, "http://runs-service.test/internal/runs/by-org"],
     ["key", deleteKeysByOrg, "http://key-service.test/internal/keys/by-org"],
+    ["brand", deleteBrandLinksByOrg, "http://brand-service.test/internal/org-brands/by-org"],
   ] as const)("calls %s-service locked path with x-api-key", async (provider, fn, basePath) => {
     const fetchMock = mockFetch(204);
 
@@ -96,6 +102,7 @@ describe("internal producer teardown client", () => {
     ["campaign", "CAMPAIGN_SERVICE_URL"],
     ["runs", "RUNS_SERVICE_URL"],
     ["key", "KEY_SERVICE_URL"],
+    ["brand", "BRAND_SERVICE_URL"],
   ] as const)("throws when %s-service URL is not configured", async (provider, envKey) => {
     delete process.env[envKey];
 
