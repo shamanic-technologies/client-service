@@ -20,6 +20,7 @@ import {
 import { deleteStripeCustomerByOrg, StripeServiceError } from "../lib/stripe-service-client.js";
 import {
   deleteBillingByOrg,
+  deleteBrandLinksByOrg,
   deleteCampaignsByOrg,
   deleteKeysByOrg,
   deleteRunsByOrg,
@@ -35,6 +36,7 @@ interface TeardownSummary {
   campaign: "deleted";
   runs: "deleted";
   key: "deleted";
+  brand: "deleted";
   stripe: "deleted";
   clerk: ClerkDeleteResult;
   clerkUsers: { deleted: number; notFound: number };
@@ -44,7 +46,10 @@ interface TeardownSummary {
 /**
  * Run the full org cascade-teardown for an INTERNAL org UUID. Shared by both the
  * by-UUID and by-external-id routes. Steps (fail loud, no partial success):
- *   1. spend/security producers (billing, campaign, runs, key) delete their state.
+ *   1. spend/security producers (billing, campaign, runs, key) delete their state,
+ *      then brand-service forgets the org's brand links and per-(org, brand) rows
+ *      (brand rows themselves are global and shared, they stay), so a deleted org
+ *      never shows up as a holder of a brand.
  *   2. stripe-service deletes the org's Stripe customer (keyed by the same UUID).
  *   3. Clerk deletes the org online (keyed by external_id).
  *   3b. Clerk deletes every user belonging to the org (keyed by users.external_id) —
@@ -75,6 +80,7 @@ async function teardownOrg(orgId: string): Promise<TeardownSummary> {
   const campaign = await deleteCampaignsByOrg(orgId);
   const runs = await deleteRunsByOrg(orgId);
   const key = await deleteKeysByOrg(orgId);
+  const brand = await deleteBrandLinksByOrg(orgId);
 
   // 2. Stripe customer (online, via stripe-service). Fail loud on real error.
   const stripe = await deleteStripeCustomerByOrg(orgId);
@@ -160,6 +166,7 @@ async function teardownOrg(orgId: string): Promise<TeardownSummary> {
     campaign,
     runs,
     key,
+    brand,
     stripe,
     clerk,
     clerkUsers,

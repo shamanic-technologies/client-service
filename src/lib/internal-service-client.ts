@@ -1,4 +1,4 @@
-export type TeardownProvider = "billing" | "campaign" | "runs" | "key";
+export type TeardownProvider = "billing" | "campaign" | "runs" | "key" | "brand";
 
 type TeardownTarget = {
   provider: TeardownProvider;
@@ -31,6 +31,12 @@ const TARGETS: Record<TeardownProvider, TeardownTarget> = {
     urlEnv: "KEY_SERVICE_URL",
     apiKeyEnv: "KEY_SERVICE_API_KEY",
     path: (orgId) => `/internal/keys/by-org/${encodeURIComponent(orgId)}`,
+  },
+  brand: {
+    provider: "brand",
+    urlEnv: "BRAND_SERVICE_URL",
+    apiKeyEnv: "BRAND_SERVICE_API_KEY",
+    path: (orgId) => `/internal/brands/by-org/${encodeURIComponent(orgId)}`,
   },
 };
 
@@ -87,4 +93,8 @@ export async function deleteRunsByOrg(orgId: string): Promise<InternalServiceDel
 
 export async function deleteKeysByOrg(orgId: string): Promise<InternalServiceDeleteResult> {
   return deleteInternalServiceByOrg("key", orgId);
+}
+
+export async function deleteBrandLinksByOrg(orgId: string): Promise<InternalServiceDeleteResult> {
+  return deleteInternalServiceByOrg("brand", orgId);
 }

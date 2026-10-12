@@ -821,6 +821,13 @@
               "deleted"
             ]
           },
+          "brand": {
+            "type": "string",
+            "enum": [
+              "deleted"
+            ],
+            "description": "brand-service forgot the org's brand memberships and per-(org, brand) rows. Brand rows are global and shared, so they stay."
+          },
           "stripe": {
             "type": "string",
             "enum": [
@@ -906,6 +913,13 @@
                     "deleted"
                   ]
                 },
+                "brand": {
+                  "type": "string",
+                  "enum": [
+                    "deleted"
+                  ],
+                  "description": "brand-service forgot the org's brand memberships and per-(org, brand) rows. Brand rows are global and shared, so they stay."
+                },
                 "stripe": {
                   "type": "string",
                   "enum": [
@@ -948,6 +962,7 @@
                 "campaign",
                 "runs",
                 "key",
+                "brand",
                 "stripe",
                 "clerk",
                 "clerkUsers",
@@ -964,6 +979,7 @@
           "campaign",
           "runs",
           "key",
+          "brand",
           "stripe",
           "clerk",
           "clerkUsers",
