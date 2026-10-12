@@ -1761,3 +1761,144 @@ registry.registerPath({
     },
   },
 });
+
+// --- Create an org for a new client (staff, through the gateway / distribute MCP) ---
+
+const ServiceErrorSchema = z
+  .object({ error: z.string(), message: z.string() })
+  .openapi("ServiceError");
+
+export const CreateOrgBodySchema = z
+  .object({
+    name: z.string().trim().min(1).max(120).openapi({ description: "The client organization's display name.", example: "Acme Inc" }),
+    createdByUserId: z.string().uuid().openapi({
+      description:
+        "Internal user uuid of the acting (staff) user, as the gateway sends in `x-user-id`. They become an admin of the new org, so they can keep working in it and invite the client.",
+    }),
+    idempotencyKey: z.string().min(1).max(200).optional().openapi({
+      description:
+        "Optional. A retry by the same user with the same key returns the org the first call created (200, `created: false`), even under concurrent calls. Without a key every call creates a new org.",
+    }),
+  })
+  .openapi("CreateOrgBody");
+
+const CreatedOrgSchema = z
+  .object({
+    orgId: z.string().uuid().openapi({ description: "Internal org uuid: the `x-org-id` every other service keys on (billing, brand, campaign, ...). Served at once by GET /internal/orgs/{orgId}." }),
+    name: z.string(),
+    slug: z.string().nullable(),
+    clerkOrgId: z.string().openapi({ description: "Identity-provider (Clerk) org id." }),
+    createdByUserId: z.string().uuid(),
+    onboardingComplete: z.literal(true).openapi({ description: "The dashboard's first-run flag is set: the client is never sent back to the signup walk." }),
+    created: z.boolean().openapi({ description: "false = an idempotent replay returned the org an earlier call with the same key created." }),
+  })
+  .openapi("CreatedOrg");
+
+registry.registerPath({
+  method: "post",
+  path: "/internal/orgs",
+  summary: "Create an organization for a new client, on behalf of the acting user",
+  description:
+    "Creates an ordinary customer org: an identity-provider (Clerk) organization the acting user administers, its onboarding marked complete, and the internal org uuid, immediately usable for brands, offers, audiences and campaigns. The acting user's current org is not changed (they switch to it in the dashboard). Touches nothing else: no billing account, no credit, no first touch. Staff gating is the caller's (the gateway); this service only checks the acting user exists. Idempotent only with `idempotencyKey`.",
+  security: [{ ApiKeyAuth: [] }],
+  request: { body: { content: { "application/json": { schema: CreateOrgBodySchema } } } },
+  responses: {
+    201: { description: "Org created", content: { "application/json": { schema: CreatedOrgSchema } } },
+    200: { description: "Replay: same user and idempotencyKey as an earlier call, that call's org is returned", content: { "application/json": { schema: CreatedOrgSchema } } },
+    400: { description: "`invalid_request`", content: { "application/json": { schema: ServiceErrorSchema } } },
+    401: { description: "Unauthorized", content: { "application/json": { schema: ErrorResponseSchema } } },
+    404: { description: "`user_not_found`: no user with an identity-provider account has `createdByUserId`", content: { "application/json": { schema: ServiceErrorSchema } } },
+    502: { description: "`identity_provider_failed`: Clerk refused or failed; nothing half-made is kept, retry", content: { "application/json": { schema: ServiceErrorSchema } } },
+  },
+});
+
+// --- Org member invitations (invite a person into an org by email) ---
+
+export const MemberInvitationsOrgParamsSchema = z.object({
+  orgId: z.string().uuid().openapi({ description: "Internal org uuid." }),
+});
+
+export const MemberInvitationParamsSchema = z.object({
+  orgId: z.string().uuid().openapi({ description: "Internal org uuid." }),
+  invitationId: z.string().min(1).max(100).openapi({ description: "Invitation id, as listed or returned at creation (`orginv_...`)." }),
+});
+
+export const MemberInvitationCreateBodySchema = z
+  .object({
+    email: z.string().trim().toLowerCase().email().max(320).openapi({ example: "jane@acme.com" }),
+    invitedByUserId: z.string().uuid().openapi({
+      description: "Internal user uuid of the inviter (the gateway's `x-user-id`). Must be an admin of the org at the identity provider; every member invited through the product is one.",
+    }),
+  })
+  .openapi("MemberInvitationCreateBody");
+
+const MemberInvitationSchema = z
+  .object({
+    id: z.string(),
+    email: z.string(),
+    role: z.string().openapi({ description: "Always `org:admin`: one role per team (same as the dashboard's invite form)." }),
+    status: z.string().openapi({ description: "`pending` while it can be accepted; `revoked` in the revoke response." }),
+    inviteUrl: z.string().nullable().openapi({
+      description:
+        "The link the invitee opens to join (the same one the identity provider emails them), for the inviter to forward by hand. It lands on the dashboard's /invite page, which signs the person in or up inside THIS org. Never null on a creation response.",
+    }),
+    createdAt: z.string(),
+    expiresAt: z.string(),
+  })
+  .openapi("MemberInvitation");
+
+registry.registerPath({
+  method: "post",
+  path: "/internal/orgs/{orgId}/member-invitations",
+  summary: "Invite a person into an org by email (idempotent while pending)",
+  description:
+    "Creates an identity-provider invitation: the person gets an email, and the response carries the same link to forward by hand. Idempotent per (org, email) while an invitation is pending: the pending one is returned (200, `created: false`), never a second one. Any member may invite; the caller (gateway) scopes the org to the authenticated user. Not the referral invites at /internal/invites.",
+  security: [{ ApiKeyAuth: [] }],
+  request: {
+    params: MemberInvitationsOrgParamsSchema,
+    body: { content: { "application/json": { schema: MemberInvitationCreateBodySchema } } },
+  },
+  responses: {
+    201: { description: "Invitation created and emailed", content: { "application/json": { schema: z.object({ invitation: MemberInvitationSchema, created: z.literal(true) }) } } },
+    200: { description: "A pending invitation for this email already existed and is returned", content: { "application/json": { schema: z.object({ invitation: MemberInvitationSchema, created: z.literal(false) }) } } },
+    400: { description: "`invalid_request`", content: { "application/json": { schema: ServiceErrorSchema } } },
+    401: { description: "Unauthorized", content: { "application/json": { schema: ErrorResponseSchema } } },
+    404: { description: "`org_not_found` or `user_not_found` (inviter)", content: { "application/json": { schema: ServiceErrorSchema } } },
+    409: { description: "`org_has_no_identity`: a signed-out onboarding org not yet claimed, or an absorbed shell", content: { "application/json": { schema: ServiceErrorSchema } } },
+    422: { description: "`invitation_refused`: the identity provider refused (already a member, inviter not an admin, ...); `message` is its sentence, safe to show", content: { "application/json": { schema: ServiceErrorSchema } } },
+    502: { description: "`identity_provider_failed`, or `invite_link_unavailable` (invitation emailed but no link returned)", content: { "application/json": { schema: ServiceErrorSchema } } },
+  },
+});
+
+registry.registerPath({
+  method: "get",
+  path: "/internal/orgs/{orgId}/member-invitations",
+  summary: "List an org's pending invitations",
+  description: "Read live from the identity provider. A failed read is a 502, never an empty list.",
+  security: [{ ApiKeyAuth: [] }],
+  request: { params: MemberInvitationsOrgParamsSchema },
+  responses: {
+    200: { description: "Pending invitations", content: { "application/json": { schema: z.object({ invitations: z.array(MemberInvitationSchema) }).openapi("MemberInvitationList") } } },
+    401: { description: "Unauthorized", content: { "application/json": { schema: ErrorResponseSchema } } },
+    404: { description: "`org_not_found`", content: { "application/json": { schema: ServiceErrorSchema } } },
+    409: { description: "`org_has_no_identity`", content: { "application/json": { schema: ServiceErrorSchema } } },
+    502: { description: "`identity_provider_failed`", content: { "application/json": { schema: ServiceErrorSchema } } },
+  },
+});
+
+registry.registerPath({
+  method: "delete",
+  path: "/internal/orgs/{orgId}/member-invitations/{invitationId}",
+  summary: "Revoke a pending invitation",
+  description: "The link stops working at once. An id that is not one of this org's invitations is a 404.",
+  security: [{ ApiKeyAuth: [] }],
+  request: { params: MemberInvitationParamsSchema },
+  responses: {
+    200: { description: "Revoked", content: { "application/json": { schema: z.object({ invitation: MemberInvitationSchema }) } } },
+    401: { description: "Unauthorized", content: { "application/json": { schema: ErrorResponseSchema } } },
+    404: { description: "`org_not_found` or `invitation_not_found`", content: { "application/json": { schema: ServiceErrorSchema } } },
+    409: { description: "`org_has_no_identity`", content: { "application/json": { schema: ServiceErrorSchema } } },
+    422: { description: "`invitation_refused`: e.g. already accepted or already revoked; `message` is the identity provider's sentence", content: { "application/json": { schema: ServiceErrorSchema } } },
+    502: { description: "`identity_provider_failed`", content: { "application/json": { schema: ServiceErrorSchema } } },
+  },
+});
