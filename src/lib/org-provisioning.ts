@@ -1,7 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import { db } from "../db/index.js";
 import { orgCreations, orgs, users } from "../db/schema.js";
-import { createClerkClientOrganization, deleteClerkOrganization } from "./clerk-client.js";
+import { clerkUserExists, createClerkClientOrganization, deleteClerkOrganization } from "./clerk-client.js";
 
 /**
  * An organization created for a NEW CLIENT on a staff member's behalf, so a
@@ -10,12 +10,19 @@ import { createClerkClientOrganization, deleteClerkOrganization } from "./clerk-
  * inside a container.
  *
  * The org is an ordinary customer org from its first second: a Clerk
- * organization the acting user administers (so they keep working in it, and
- * can invite the client next), its onboarding already marked complete (the
+ * organization the acting user administers (so they keep working in it in the
+ * dashboard, and can invite the client next), its onboarding already marked
+ * complete (the
  * dashboard never walks the client back through signup), and the internal
  * uuid every other service keys on. Nothing else is touched: no billing, no
  * credit, no first touch. Staff gating is the gateway's: this service only
  * checks that the acting user exists.
+ *
+ * An acting user whose row carries an id Clerk does not know (measured in prod
+ * 2026-10-12: the owner's own staff identity) cannot be made an admin; the org
+ * is still created, with no Clerk member yet, and the response says so
+ * (`actingUserMembership: "none"`). Such a user works in it through the API
+ * (the gateway's staff key), and the client joins by invitation.
  */
 
 export class OrgProvisionError extends Error {
@@ -34,13 +41,21 @@ export interface CreatedOrg {
   slug: string | null;
   clerkOrgId: string;
   createdByUserId: string;
+  /** `admin`: the acting user administers the Clerk org. `none`: Clerk does not know them, the org has no member yet. */
+  actingUserMembership: "admin" | "none";
   onboardingComplete: true;
   created: boolean;
 }
 
 async function existingForKey(createdByUserId: string, idempotencyKey: string): Promise<CreatedOrg | null> {
   const [row] = await db
-    .select({ orgId: orgs.id, name: orgs.name, slug: orgs.slug, clerkOrgId: orgs.externalId })
+    .select({
+      orgId: orgs.id,
+      name: orgs.name,
+      slug: orgs.slug,
+      clerkOrgId: orgs.externalId,
+      actingUserMembership: orgCreations.actingUserMembership,
+    })
     .from(orgCreations)
     .innerJoin(orgs, eq(orgCreations.orgId, orgs.id))
     .where(and(eq(orgCreations.createdByUserId, createdByUserId), eq(orgCreations.idempotencyKey, idempotencyKey)))
@@ -52,6 +67,7 @@ async function existingForKey(createdByUserId: string, idempotencyKey: string): 
     slug: row.slug,
     clerkOrgId: row.clerkOrgId,
     createdByUserId,
+    actingUserMembership: row.actingUserMembership === "admin" ? "admin" : "none",
     onboardingComplete: true,
     created: false,
   };
@@ -88,7 +104,9 @@ export async function createClientOrg(input: {
     if (replay) return replay;
   }
 
-  const clerk = await createClerkClientOrganization(actor.externalId, name);
+  const known = await clerkUserExists(actor.externalId, { method: "POST", path: "/internal/orgs" });
+  const actingUserMembership = known ? "admin" : "none";
+  const clerk = await createClerkClientOrganization(known ? actor.externalId : null, name);
 
   try {
     const orgId = await db.transaction(async (tx) => {
@@ -96,7 +114,9 @@ export async function createClientOrg(input: {
         .insert(orgs)
         .values({ externalId: clerk.clerkOrgId, name, slug: clerk.slug })
         .returning({ id: orgs.id });
-      await tx.insert(orgCreations).values({ orgId: org.id, createdByUserId, idempotencyKey: idempotencyKey ?? null });
+      await tx
+        .insert(orgCreations)
+        .values({ orgId: org.id, createdByUserId, idempotencyKey: idempotencyKey ?? null, actingUserMembership });
       return org.id;
     });
     return {
@@ -105,6 +125,7 @@ export async function createClientOrg(input: {
       slug: clerk.slug,
       clerkOrgId: clerk.clerkOrgId,
       createdByUserId,
+      actingUserMembership,
       onboardingComplete: true,
       created: true,
     };

@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 import { db } from "../db/index.js";
 import { orgs, users } from "../db/schema.js";
 import {
+  clerkUserExists,
   createClerkOrgInvitation,
   listClerkPendingInvitations,
   revokeClerkOrgInvitation,
@@ -19,6 +20,8 @@ import {
  *
  * Who may invite into which org is the gateway's call (it scopes the org to the
  * authenticated caller); this service checks the org and the inviter exist.
+ * An inviter Clerk does not know (a staff identity made outside it) invites
+ * without being named to Clerk, the same invitation otherwise.
  */
 
 export const INVITE_ROLE = "org:admin";
@@ -90,12 +93,14 @@ async function clerkOrgIdOf(orgId: string): Promise<string> {
   return org.externalId;
 }
 
-async function clerkUserIdOf(userId: string): Promise<string> {
+/** The inviter's Clerk id, or null when Clerk does not know it (then Clerk is not told who invited). */
+async function inviterClerkUserIdOf(userId: string): Promise<string | null> {
   const [user] = await db.select({ externalId: users.externalId }).from(users).where(eq(users.id, userId)).limit(1);
   if (!user?.externalId) {
     throw new OrgInvitationError("user_not_found", "No user with an identity-provider account has this id.");
   }
-  return user.externalId;
+  const known = await clerkUserExists(user.externalId, { method: "POST", path: "/internal/orgs/:orgId/member-invitations" });
+  return known ? user.externalId : null;
 }
 
 /**
@@ -108,7 +113,7 @@ export async function inviteMember(input: {
   invitedByUserId: string;
 }): Promise<{ invitation: MemberInvitation; created: boolean }> {
   const clerkOrgId = await clerkOrgIdOf(input.orgId);
-  const inviterClerkUserId = await clerkUserIdOf(input.invitedByUserId);
+  const inviterClerkUserId = await inviterClerkUserIdOf(input.invitedByUserId);
   const email = normalizeEmail(input.email);
 
   const pending = (await listClerkPendingInvitations(clerkOrgId)).find((i) => normalizeEmail(i.email) === email);

@@ -375,9 +375,12 @@ export const orgCreations = pgTable(
       .references(() => orgs.id, { onDelete: "cascade" }),
     createdByUserId: uuid("created_by_user_id").notNull(),
     idempotencyKey: text("idempotency_key"),
+    /** `admin`: the acting user was made an admin at Clerk. `none`: Clerk did not know them. */
+    actingUserMembership: text("acting_user_membership").notNull().default("admin"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
+    check("org_creations_acting_user_membership_check", sql`${table.actingUserMembership} IN ('admin', 'none')`),
     uniqueIndex("idx_org_creations_org").on(table.orgId),
     uniqueIndex("idx_org_creations_key")
       .on(table.createdByUserId, table.idempotencyKey)
