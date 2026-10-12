@@ -36,7 +36,7 @@ const TARGETS: Record<TeardownProvider, TeardownTarget> = {
     provider: "brand",
     urlEnv: "BRAND_SERVICE_URL",
     apiKeyEnv: "BRAND_SERVICE_API_KEY",
-    path: (orgId) => `/internal/brands/by-org/${encodeURIComponent(orgId)}`,
+    path: (orgId) => `/internal/org-brands/by-org/${encodeURIComponent(orgId)}`,
   },
 };
 

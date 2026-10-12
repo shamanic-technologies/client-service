@@ -72,7 +72,7 @@ describe("internal producer teardown client", () => {
     ["campaign", deleteCampaignsByOrg, "http://campaign-service.test/internal/campaigns/by-org"],
     ["runs", deleteRunsByOrg, "http://runs-service.test/internal/runs/by-org"],
     ["key", deleteKeysByOrg, "http://key-service.test/internal/keys/by-org"],
-    ["brand", deleteBrandLinksByOrg, "http://brand-service.test/internal/brands/by-org"],
+    ["brand", deleteBrandLinksByOrg, "http://brand-service.test/internal/org-brands/by-org"],
   ] as const)("calls %s-service locked path with x-api-key", async (provider, fn, basePath) => {
     const fetchMock = mockFetch(204);
 
