@@ -8,6 +8,7 @@ import { fileURLToPath } from "url";
 import { dirname, join } from "path";
 import { migrate } from "drizzle-orm/postgres-js/migrator";
 import { db } from "./db/index.js";
+import { registerEmailTemplates } from "./lib/transactional-email-client.js";
 import healthRoutes from "./routes/health.js";
 import resolveRoutes from "./routes/resolve.js";
 import phoneAccountsRoutes from "./routes/phone-accounts.js";
@@ -23,6 +24,7 @@ import waitlistRoutes from "./routes/waitlist.js";
 import acquisitionsRoutes from "./routes/acquisitions.js";
 import transferBrandRoutes from "./routes/transfer-brand.js";
 import userLinkedinProfileRoutes from "./routes/user-linkedin-profile.js";
+import agentSignupsRoutes from "./routes/agent-signups.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -68,6 +70,7 @@ app.use(invitesRoutes);
 app.use(waitlistRoutes);
 app.use(acquisitionsRoutes);
 app.use(userLinkedinProfileRoutes);
+app.use(agentSignupsRoutes);
 app.use(transferBrandRoutes);
 
 // 404 handler
@@ -91,6 +94,8 @@ if (process.env.NODE_ENV !== "test") {
       console.log("Migrations complete");
       app.listen(Number(PORT), "::", () => {
         console.log(`Client service running on port ${PORT}`);
+        // After listen: an upsert of our own email templates, never awaited by boot.
+        void registerEmailTemplates();
       });
     })
     .catch((err) => {

@@ -9,12 +9,14 @@ import {
   rewardTaskCompletions,
   orgAcquisitions,
   userLinkedinProfiles,
+  agentSignupCodes,
 } from "../../src/db/schema.js";
 
 /**
  * Clean all test data from the database
  */
 export async function cleanTestData() {
+  await db.delete(agentSignupCodes);
   await db.delete(orgAcquisitions);
   await db.delete(userLinkedinProfiles);
   await db.delete(rewardTaskCompletions);
