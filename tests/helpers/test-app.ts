@@ -16,6 +16,8 @@ import acquisitionsRoutes from "../../src/routes/acquisitions.js";
 import transferBrandRoutes from "../../src/routes/transfer-brand.js";
 import userLinkedinProfileRoutes from "../../src/routes/user-linkedin-profile.js";
 import agentSignupsRoutes from "../../src/routes/agent-signups.js";
+import orgCreateRoutes from "../../src/routes/org-create.js";
+import orgMemberInvitationsRoutes from "../../src/routes/org-member-invitations.js";
 
 /**
  * Create a test Express app instance with all routes
@@ -42,6 +44,8 @@ export function createTestApp() {
   app.use(transferBrandRoutes);
   app.use(userLinkedinProfileRoutes);
   app.use(agentSignupsRoutes);
+  app.use(orgCreateRoutes);
+  app.use(orgMemberInvitationsRoutes);
 
   // 404 handler
   app.use((req, res) => {
