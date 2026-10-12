@@ -5,9 +5,11 @@ import { eq } from "drizzle-orm";
 const clerk = vi.hoisted(() => ({
   createOrganization: vi.fn(),
   deleteOrganization: vi.fn(),
+  getUser: vi.fn(),
 }));
 vi.mock("@clerk/backend", () => ({
   createClerkClient: () => ({
+    users: { getUser: clerk.getUser },
     organizations: { createOrganization: clerk.createOrganization, deleteOrganization: clerk.deleteOrganization },
   }),
 }));
@@ -36,6 +38,7 @@ describe("POST /internal/orgs", () => {
       return { id: `org_client_${n}`, slug: `acme-${n}` };
     });
     clerk.deleteOrganization.mockResolvedValue({});
+    clerk.getUser.mockResolvedValue({ id: "user_staff" });
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ provider: "clerk", key: "sk_test_clerk" }) })),
@@ -56,7 +59,7 @@ describe("POST /internal/orgs", () => {
   it("creates a Clerk org the acting user administers, onboarding complete, served by GET /internal/orgs/:orgId", async () => {
     const res = await create({ name: "Acme Inc", createdByUserId: staffUserId });
     expect(res.status).toBe(201);
-    expect(res.body).toMatchObject({ name: "Acme Inc", clerkOrgId: expect.stringMatching(/^org_client_/), onboardingComplete: true, created: true, createdByUserId: staffUserId });
+    expect(res.body).toMatchObject({ name: "Acme Inc", clerkOrgId: expect.stringMatching(/^org_client_/), onboardingComplete: true, created: true, createdByUserId: staffUserId, actingUserMembership: "admin" });
     expect(clerk.createOrganization).toHaveBeenCalledWith({
       name: "Acme Inc",
       createdBy: "user_staff",
@@ -95,6 +98,23 @@ describe("POST /internal/orgs", () => {
     expect(clerk.deleteOrganization).toHaveBeenCalledTimes(created - 1);
     const rows = await db.select().from(orgCreations).where(eq(orgCreations.idempotencyKey, "race"));
     expect(rows).toHaveLength(1);
+  });
+
+  it("an acting user Clerk does not know still gets the org, with no Clerk member, and the replay says so", async () => {
+    clerk.getUser.mockRejectedValue({ status: 404, errors: [{ message: "No users found" }] });
+    const res = await create({ name: "Acme", createdByUserId: staffUserId, idempotencyKey: "ghost" });
+    expect(res.status).toBe(201);
+    expect(res.body.actingUserMembership).toBe("none");
+    expect(clerk.createOrganization).toHaveBeenCalledWith({ name: "Acme", publicMetadata: { onboardingComplete: true } });
+    const again = await create({ name: "Acme", createdByUserId: staffUserId, idempotencyKey: "ghost" });
+    expect(again.body).toMatchObject({ orgId: res.body.orgId, created: false, actingUserMembership: "none" });
+  });
+
+  it("502s when Clerk cannot say whether it knows the acting user", async () => {
+    clerk.getUser.mockRejectedValue({ status: 503, errors: [{ message: "down" }] });
+    const res = await create({ name: "Acme", createdByUserId: staffUserId });
+    expect(res.status).toBe(502);
+    expect(clerk.createOrganization).not.toHaveBeenCalled();
   });
 
   it("404s an unknown acting user without calling Clerk", async () => {

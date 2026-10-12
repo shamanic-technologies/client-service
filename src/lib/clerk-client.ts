@@ -366,24 +366,41 @@ export async function createClerkEmailAccount(email: string, orgName: string): P
 
 /**
  * Create a Clerk organization for a NEW CLIENT on behalf of a staff member
- * (POST /internal/orgs). `createdBy` makes the acting user an admin of it, so
- * they can keep working in it; `onboardingComplete` is the dashboard's
+ * (POST /internal/orgs). `createdBy` (when Clerk knows the acting user) makes
+ * them an admin of it, so they can keep working in it in the dashboard; null
+ * creates an org with no member yet; `onboardingComplete` is the dashboard's
  * first-run flag (`proxy.ts`), set here so the client is never pushed back into
  * the signup walk. Fail loud: any Clerk failure throws ClerkServiceError.
  */
 export async function createClerkClientOrganization(
-  createdByClerkUserId: string,
+  createdByClerkUserId: string | null,
   orgName: string,
 ): Promise<ClerkOrganizationRef> {
   const clerk = await getClerkClient({ method: "POST", path: "/internal/orgs" });
   try {
     const org = await clerk.organizations.createOrganization({
       name: orgName,
-      createdBy: createdByClerkUserId,
+      ...(createdByClerkUserId && { createdBy: createdByClerkUserId }),
       publicMetadata: { onboardingComplete: true },
     });
     return { clerkOrgId: org.id, slug: org.slug ?? null };
   } catch (err: unknown) {
+    throw new ClerkServiceError(errorStatus(err), errorBody(err));
+  }
+}
+
+/**
+ * Whether Clerk knows this user id. A user row of ours can carry an id Clerk
+ * does not have (a staff identity made outside the identity provider); a 404 is
+ * that answer, any other failure throws ClerkServiceError.
+ */
+export async function clerkUserExists(clerkUserId: string, caller: CallerInfo): Promise<boolean> {
+  const clerk = await getClerkClient(caller);
+  try {
+    await clerk.users.getUser(clerkUserId);
+    return true;
+  } catch (err: unknown) {
+    if (isNotFound(err)) return false;
     throw new ClerkServiceError(errorStatus(err), errorBody(err));
   }
 }
@@ -456,7 +473,7 @@ export async function createClerkOrgInvitation(input: {
   clerkOrgId: string;
   email: string;
   role: string;
-  inviterClerkUserId: string;
+  inviterClerkUserId: string | null;
   redirectUrl: string;
 }): Promise<ClerkOrgInvitation> {
   const clerk = await getClerkClient({ method: "POST", path: MEMBER_INVITATIONS_PATH });
@@ -465,7 +482,7 @@ export async function createClerkOrgInvitation(input: {
       organizationId: input.clerkOrgId,
       emailAddress: input.email,
       role: input.role,
-      inviterUserId: input.inviterClerkUserId,
+      ...(input.inviterClerkUserId && { inviterUserId: input.inviterClerkUserId }),
       redirectUrl: input.redirectUrl,
     });
     return toInvitation(invitation);

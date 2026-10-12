@@ -1899,6 +1899,14 @@
             "type": "string",
             "format": "uuid"
           },
+          "actingUserMembership": {
+            "type": "string",
+            "enum": [
+              "admin",
+              "none"
+            ],
+            "description": "`admin`: the acting user administers the org at the identity provider (they see it in the dashboard). `none`: the identity provider does not know the acting user (e.g. a staff identity made outside it), so the org was created with no member yet; work in it through the API and invite the client."
+          },
           "onboardingComplete": {
             "type": "boolean",
             "enum": [
@@ -1917,6 +1925,7 @@
           "slug",
           "clerkOrgId",
           "createdByUserId",
+          "actingUserMembership",
           "onboardingComplete",
           "created"
         ]
@@ -2014,7 +2023,7 @@
           "invitedByUserId": {
             "type": "string",
             "format": "uuid",
-            "description": "Internal user uuid of the inviter (the gateway's `x-user-id`). Must be an admin of the org at the identity provider; every member invited through the product is one."
+            "description": "Internal user uuid of the inviter (the gateway's `x-user-id`). When the identity provider knows them they are named as the inviter and must be an admin of the org there (every member invited through the product is one); when it does not (a staff identity made outside it), the invitation is sent without naming an inviter."
           }
         },
         "required": [
@@ -4284,7 +4293,7 @@
     "/internal/orgs": {
       "post": {
         "summary": "Create an organization for a new client, on behalf of the acting user",
-        "description": "Creates an ordinary customer org: an identity-provider (Clerk) organization the acting user administers, its onboarding marked complete, and the internal org uuid, immediately usable for brands, offers, audiences and campaigns. The acting user's current org is not changed (they switch to it in the dashboard). Touches nothing else: no billing account, no credit, no first touch. Staff gating is the caller's (the gateway); this service only checks the acting user exists. Idempotent only with `idempotencyKey`.",
+        "description": "Creates an ordinary customer org: an identity-provider (Clerk) organization the acting user administers (or, when the identity provider does not know the acting user, one with no member yet: `actingUserMembership: none`), its onboarding marked complete, and the internal org uuid, immediately usable for brands, offers, audiences and campaigns. The acting user's current org is not changed (they switch to it in the dashboard). Touches nothing else: no billing account, no credit, no first touch. Staff gating is the caller's (the gateway); this service only checks the acting user exists. Idempotent only with `idempotencyKey`.",
         "security": [
           {
             "ApiKeyAuth": []

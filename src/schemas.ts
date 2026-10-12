@@ -1789,6 +1789,10 @@ const CreatedOrgSchema = z
     slug: z.string().nullable(),
     clerkOrgId: z.string().openapi({ description: "Identity-provider (Clerk) org id." }),
     createdByUserId: z.string().uuid(),
+    actingUserMembership: z.enum(["admin", "none"]).openapi({
+      description:
+        "`admin`: the acting user administers the org at the identity provider (they see it in the dashboard). `none`: the identity provider does not know the acting user (e.g. a staff identity made outside it), so the org was created with no member yet; work in it through the API and invite the client.",
+    }),
     onboardingComplete: z.literal(true).openapi({ description: "The dashboard's first-run flag is set: the client is never sent back to the signup walk." }),
     created: z.boolean().openapi({ description: "false = an idempotent replay returned the org an earlier call with the same key created." }),
   })
@@ -1799,7 +1803,7 @@ registry.registerPath({
   path: "/internal/orgs",
   summary: "Create an organization for a new client, on behalf of the acting user",
   description:
-    "Creates an ordinary customer org: an identity-provider (Clerk) organization the acting user administers, its onboarding marked complete, and the internal org uuid, immediately usable for brands, offers, audiences and campaigns. The acting user's current org is not changed (they switch to it in the dashboard). Touches nothing else: no billing account, no credit, no first touch. Staff gating is the caller's (the gateway); this service only checks the acting user exists. Idempotent only with `idempotencyKey`.",
+    "Creates an ordinary customer org: an identity-provider (Clerk) organization the acting user administers (or, when the identity provider does not know the acting user, one with no member yet: `actingUserMembership: none`), its onboarding marked complete, and the internal org uuid, immediately usable for brands, offers, audiences and campaigns. The acting user's current org is not changed (they switch to it in the dashboard). Touches nothing else: no billing account, no credit, no first touch. Staff gating is the caller's (the gateway); this service only checks the acting user exists. Idempotent only with `idempotencyKey`.",
   security: [{ ApiKeyAuth: [] }],
   request: { body: { content: { "application/json": { schema: CreateOrgBodySchema } } } },
   responses: {
@@ -1827,7 +1831,7 @@ export const MemberInvitationCreateBodySchema = z
   .object({
     email: z.string().trim().toLowerCase().email().max(320).openapi({ example: "jane@acme.com" }),
     invitedByUserId: z.string().uuid().openapi({
-      description: "Internal user uuid of the inviter (the gateway's `x-user-id`). Must be an admin of the org at the identity provider; every member invited through the product is one.",
+      description: "Internal user uuid of the inviter (the gateway's `x-user-id`). When the identity provider knows them they are named as the inviter and must be an admin of the org there (every member invited through the product is one); when it does not (a staff identity made outside it), the invitation is sent without naming an inviter.",
     }),
   })
   .openapi("MemberInvitationCreateBody");

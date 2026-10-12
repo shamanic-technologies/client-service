@@ -6,8 +6,9 @@ const clerk = vi.hoisted(() => ({
   createOrganizationInvitation: vi.fn(),
   revokeOrganizationInvitation: vi.fn(),
 }));
+const getUser = vi.hoisted(() => vi.fn());
 vi.mock("@clerk/backend", () => ({
-  createClerkClient: () => ({ organizations: clerk }),
+  createClerkClient: () => ({ organizations: clerk, users: { getUser } }),
 }));
 
 import { createTestApp } from "../helpers/test-app.js";
@@ -32,6 +33,8 @@ describe("org member invitations", () => {
     await cleanTestData();
     Object.values(clerk).forEach((m) => m.mockReset());
     pending = [];
+    getUser.mockReset();
+    getUser.mockResolvedValue({ id: "user_admin" });
     clerk.getOrganizationInvitationList.mockImplementation(async () => ({ data: pending, totalCount: pending.length }));
     clerk.createOrganizationInvitation.mockImplementation(async (p: { emailAddress: string; role: string }) => {
       const inv: Inv = {
@@ -98,6 +101,13 @@ describe("org member invitations", () => {
     expect(del.body.invitation.status).toBe("revoked");
     const after = await request(app).get(path()).set("x-api-key", API_KEY);
     expect(after.body.invitations).toEqual([]);
+  });
+
+  it("an inviter Clerk does not know invites without being named to Clerk", async () => {
+    getUser.mockRejectedValue({ status: 404, errors: [{ message: "No users found" }] });
+    const res = await invite({ email: "jane@acme.com", invitedByUserId: userId });
+    expect(res.status).toBe(201);
+    expect(clerk.createOrganizationInvitation.mock.calls[0][0]).not.toHaveProperty("inviterUserId");
   });
 
   it("re-inviting a pending email returns the pending invitation, never a second one", async () => {
