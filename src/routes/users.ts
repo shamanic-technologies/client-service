@@ -1,11 +1,11 @@
 import { Router } from "express";
-import { and, eq, count } from "drizzle-orm";
+import { and, eq, count, inArray, or, type SQL } from "drizzle-orm";
 import { db } from "../db/index.js";
 import { users, orgs } from "../db/schema.js";
 import { requireApiKey } from "../middleware/auth.js";
 import { GetUserParamsSchema, ListUsersQuerySchema, UserOrgsParamsSchema } from "../schemas.js";
 import { ClerkServiceError } from "../lib/clerk-client.js";
-import { getUserOrganizations, MEMBERSHIP_CACHE_TTL_MS } from "../lib/user-memberships.js";
+import { getOrgMemberIdentities, getUserOrganizations, MEMBERSHIP_CACHE_TTL_MS } from "../lib/user-memberships.js";
 
 const router = Router();
 
@@ -42,7 +42,13 @@ router.get("/internal/users/:userId", requireApiKey, async (req, res) => {
 });
 
 /**
- * GET /internal/users - List users filtered by app and org
+ * GET /internal/users - List users filtered by org and/or email.
+ *
+ * Filtered by org, the list is the org's PEOPLE: every user the identity
+ * provider (Clerk) holds as a member of the org, plus every user whose
+ * `users.org_id` is the org. `users.org_id` alone is one org per person (the
+ * last active one), so a person in several orgs would be missing from all but
+ * one. Clerk unreachable is a 502, never a shorter list.
  */
 router.get("/internal/users", requireApiKey, async (req, res) => {
   try {
@@ -53,25 +59,35 @@ router.get("/internal/users", requireApiKey, async (req, res) => {
 
     const { orgId, externalOrgId, email, limit, offset } = parsed.data;
 
-    // Resolve orgId from externalOrgId if needed
-    let resolvedOrgId = orgId;
-    if (!resolvedOrgId && externalOrgId) {
-      const [org] = await db
-        .select({ id: orgs.id })
-        .from(orgs)
-        .where(eq(orgs.externalId, externalOrgId))
-        .limit(1);
+    const empty = { users: [], total: 0, ...(limit !== undefined && { limit }), ...(offset !== undefined && { offset }) };
+    const orgColumns = {
+      id: orgs.id,
+      externalId: orgs.externalId,
+      anonymousAt: orgs.anonymousAt,
+      claimedAt: orgs.claimedAt,
+      absorbedAt: orgs.absorbedAt,
+    };
 
-      if (!org) {
-        return res.json({ users: [], total: 0, ...(limit !== undefined && { limit }), ...(offset !== undefined && { offset }) });
-      }
+    // Resolve the org (by internal id, else by external id)
+    let resolvedOrgId = orgId;
+    let org: { id: string; externalId: string | null; anonymousAt: Date | null; claimedAt: Date | null; absorbedAt: Date | null } | undefined;
+    if (resolvedOrgId) {
+      [org] = await db.select(orgColumns).from(orgs).where(eq(orgs.id, resolvedOrgId)).limit(1);
+    } else if (externalOrgId) {
+      [org] = await db.select(orgColumns).from(orgs).where(eq(orgs.externalId, externalOrgId)).limit(1);
+      if (!org) return res.json(empty);
       resolvedOrgId = org.id;
     }
 
     // Build where conditions
-    const conditions: ReturnType<typeof eq>[] = [];
+    const conditions: SQL[] = [];
     if (resolvedOrgId) {
-      conditions.push(eq(users.orgId, resolvedOrgId));
+      const memberIdentities = org ? await getOrgMemberIdentities(org) : [];
+      conditions.push(
+        memberIdentities.length > 0
+          ? (or(eq(users.orgId, resolvedOrgId), inArray(users.externalId, memberIdentities)) as SQL)
+          : eq(users.orgId, resolvedOrgId),
+      );
     }
     if (email) {
       conditions.push(eq(users.email, email));
@@ -121,6 +137,13 @@ router.get("/internal/users", requireApiKey, async (req, res) => {
       ...(offset !== undefined && { offset }),
     });
   } catch (error) {
+    if (error instanceof ClerkServiceError) {
+      console.error("[client-service] List users: identity provider failed:", error.message);
+      return res.status(502).json({
+        error: `Could not read org members from the identity provider (${error.status}): ${error.body}`,
+        reason: "identity_provider_unavailable",
+      });
+    }
     console.error("List users error:", error);
     return res.status(500).json({ error: "Failed to list users" });
   }

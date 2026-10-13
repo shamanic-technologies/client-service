@@ -2342,7 +2342,7 @@
     },
     "/internal/users": {
       "get": {
-        "summary": "List users filtered by org",
+        "summary": "List users filtered by org: every Clerk member of the org plus users whose last active org it is",
         "security": [
           {
             "ApiKeyAuth": []
@@ -2428,6 +2428,16 @@
           },
           "500": {
             "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "The identity provider (Clerk) could not be asked for the org's members (reason: identity_provider_unavailable)",
             "content": {
               "application/json": {
                 "schema": {
