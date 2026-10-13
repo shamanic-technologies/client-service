@@ -1972,6 +1972,69 @@
           "createdByUserId"
         ]
       },
+      "AddedOrgMember": {
+        "type": "object",
+        "properties": {
+          "member": {
+            "type": "object",
+            "properties": {
+              "userId": {
+                "type": "string",
+                "format": "uuid",
+                "description": "Internal user uuid: the user an API key is minted for (the gateway's `x-user-id`)."
+              },
+              "clerkUserId": {
+                "type": "string"
+              },
+              "email": {
+                "type": "string"
+              },
+              "orgId": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "role": {
+                "type": "string",
+                "description": "Always `org:admin`: one role per team (same as an invitation)."
+              }
+            },
+            "required": [
+              "userId",
+              "clerkUserId",
+              "email",
+              "orgId",
+              "role"
+            ]
+          },
+          "userCreated": {
+            "type": "boolean",
+            "description": "Our user row was created by this call."
+          },
+          "membershipCreated": {
+            "type": "boolean",
+            "description": "False: the person was already a member (idempotent replay)."
+          }
+        },
+        "required": [
+          "member",
+          "userCreated",
+          "membershipCreated"
+        ]
+      },
+      "OrgMemberAddBody": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "maxLength": 320,
+            "format": "email",
+            "example": "jane@acme.com"
+          }
+        },
+        "required": [
+          "email"
+        ]
+      },
       "MemberInvitation": {
         "type": "object",
         "properties": {
@@ -4385,6 +4448,121 @@
           },
           "502": {
             "description": "`identity_provider_failed`: Clerk refused or failed; nothing half-made is kept, retry",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/internal/orgs/{orgId}/members": {
+      "post": {
+        "summary": "Add a person to an org by email, sending them nothing",
+        "description": "Makes the identity-provider user for this email a member of the org directly (no invitation, no email). The user is created admin-side when the email has none (verified, never mailed, no password); when the person later signs in with that email they are this same user, in this org. Idempotent per (org, email). Staff only: the gateway gates it and mints the person's own API key from `member.userId`.",
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Internal org uuid."
+            },
+            "required": true,
+            "description": "Internal org uuid.",
+            "name": "orgId",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OrgMemberAddBody"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Already a member",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AddedOrgMember"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "Membership created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AddedOrgMember"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`invalid_request`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`org_not_found`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`org_has_no_identity`: a signed-out onboarding org not yet claimed, or an absorbed shell",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceError"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "`member_refused`: the identity provider refused; `message` is its sentence, safe to show",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceError"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "`identity_provider_failed`",
             "content": {
               "application/json": {
                 "schema": {

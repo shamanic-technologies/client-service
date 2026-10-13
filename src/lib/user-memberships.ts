@@ -42,6 +42,17 @@ export function clearMembershipCache(): void {
   orgMemberCache.clear();
 }
 
+/**
+ * Drop what this process cached about one membership edge, after it changed
+ * here (a member added): the new org is reachable on the next read, not after
+ * the TTL.
+ */
+export function forgetMembership(clerkUserId: string, clerkOrgId: string): void {
+  membershipCache.delete(clerkUserId);
+  inFlight.delete(clerkUserId);
+  orgMemberCache.delete(clerkOrgId);
+}
+
 function remember<V>(cache: Map<string, V>, key: string, value: V): void {
   if (cache.size >= MAX_CACHE_ENTRIES) {
     const oldest = cache.keys().next().value;

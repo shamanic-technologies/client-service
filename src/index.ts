@@ -27,6 +27,7 @@ import userLinkedinProfileRoutes from "./routes/user-linkedin-profile.js";
 import agentSignupsRoutes from "./routes/agent-signups.js";
 import orgCreateRoutes from "./routes/org-create.js";
 import orgMemberInvitationsRoutes from "./routes/org-member-invitations.js";
+import orgMembersRoutes from "./routes/org-members.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -75,6 +76,7 @@ app.use(userLinkedinProfileRoutes);
 app.use(agentSignupsRoutes);
 app.use(orgCreateRoutes);
 app.use(orgMemberInvitationsRoutes);
+app.use(orgMembersRoutes);
 app.use(transferBrandRoutes);
 
 // 404 handler
