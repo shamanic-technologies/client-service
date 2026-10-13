@@ -3,6 +3,7 @@ import { db } from "../db/index.js";
 import { orgs, users } from "../db/schema.js";
 import {
   getClerkOrganizationNames,
+  listClerkOrganizationMemberIds,
   listClerkUserMemberships,
   type ClerkUserMembership,
 } from "./clerk-client.js";
@@ -38,6 +39,7 @@ export function clearMembershipCache(): void {
   membershipCache.clear();
   inFlight.clear();
   nameCache.clear();
+  orgMemberCache.clear();
 }
 
 function remember<V>(cache: Map<string, V>, key: string, value: V): void {
@@ -239,4 +241,36 @@ export async function getOrgNames(
     out.push({ orgId: id, name: row.name ?? resolvedNames.get(id) ?? null });
   }
   return { orgs: out, notFound };
+}
+
+/** Clerk org id -> its members' Clerk user ids (null = Clerk does not know it), with the time it was asked. */
+const orgMemberCache = new Map<string, { memberIds: string[] | null; at: number }>();
+
+/**
+ * The Clerk user ids of everyone who is a member of this org RIGHT NOW.
+ *
+ * `users.org_id` holds ONE org per person (the one last active in the
+ * dashboard), so a person in two organizations is invisible to every org but
+ * one when listed by that column. The identity provider holds the membership
+ * set; this asks it. Only an org whose `external_id` IS an identity-provider
+ * organization is asked: an anonymous org awaiting a claim holds a
+ * dashboard-minted id Clerk has never seen, and an absorbed shell holds none.
+ * Answers are reused for MEMBERSHIP_CACHE_TTL_MS. Throws ClerkServiceError when
+ * Clerk could not be asked: "could not ask" is never "nobody".
+ */
+export async function getOrgMemberIdentities(org: {
+  externalId: string | null;
+  anonymousAt: Date | null;
+  claimedAt: Date | null;
+  absorbedAt: Date | null;
+}): Promise<string[]> {
+  if (!org.externalId || org.absorbedAt !== null) return [];
+  if (org.anonymousAt !== null && org.claimedAt === null) return [];
+
+  const hit = orgMemberCache.get(org.externalId);
+  if (hit && Date.now() - hit.at < MEMBERSHIP_CACHE_TTL_MS) return hit.memberIds ?? [];
+
+  const memberIds = await listClerkOrganizationMemberIds(org.externalId);
+  remember(orgMemberCache, org.externalId, { memberIds, at: Date.now() });
+  return memberIds ?? [];
 }

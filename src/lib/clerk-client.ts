@@ -233,6 +233,35 @@ export async function listClerkUserMemberships(
   }
 }
 
+/**
+ * The Clerk user ids of every member of a Clerk organization RIGHT NOW, read live.
+ *
+ * Returns `null` when Clerk does not know the organization (404) — distinct from
+ * `[]`, an organization Clerk knows with no member. Any other failure throws
+ * ClerkServiceError: "could not ask" must never read as "nobody is a member".
+ */
+export async function listClerkOrganizationMemberIds(clerkOrgId: string): Promise<string[] | null> {
+  const clerk = await getClerkClient({ method: "GET", path: "/internal/users" });
+  const ids: string[] = [];
+  try {
+    for (let offset = 0; ; offset += CLERK_PAGE_LIMIT) {
+      const page = await clerk.organizations.getOrganizationMembershipList({
+        organizationId: clerkOrgId,
+        limit: CLERK_PAGE_LIMIT,
+        offset,
+      });
+      for (const m of page.data) {
+        if (m.publicUserData?.userId) ids.push(m.publicUserData.userId);
+      }
+      if (page.data.length < CLERK_PAGE_LIMIT || offset + page.data.length >= page.totalCount) break;
+    }
+    return ids;
+  } catch (err: unknown) {
+    if (isNotFound(err)) return null;
+    throw new ClerkServiceError(errorStatus(err), errorBody(err));
+  }
+}
+
 /** Clerk's organization-list filter takes ids in the query string; keep URLs short. */
 const CLERK_ORG_ID_CHUNK = 100;
 
