@@ -77,7 +77,7 @@ export function normalizeEmail(raw: string): string {
  * onboarding org not yet claimed, or a shell whose identity went elsewhere) is
  * refused by name rather than sent to Clerk with an id Clerk never issued.
  */
-async function clerkOrgIdOf(orgId: string): Promise<string> {
+export async function clerkOrgIdOf(orgId: string): Promise<string> {
   const [org] = await db
     .select({ externalId: orgs.externalId, anonymousAt: orgs.anonymousAt, claimedAt: orgs.claimedAt, absorbedAt: orgs.absorbedAt })
     .from(orgs)

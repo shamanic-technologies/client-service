@@ -312,8 +312,11 @@ export interface ClerkUserByEmail {
  * knows nobody with it. Any failure throws ClerkServiceError: "could not ask"
  * must never read as "nobody has this email", or a second account is created.
  */
-export async function findClerkUserByEmail(email: string): Promise<ClerkUserByEmail | null> {
-  const clerk = await getClerkClient(AGENT_SIGNUP_CALLER);
+export async function findClerkUserByEmail(
+  email: string,
+  caller: CallerInfo = AGENT_SIGNUP_CALLER,
+): Promise<ClerkUserByEmail | null> {
+  const clerk = await getClerkClient(caller);
   try {
     const page = await clerk.users.getUserList({ emailAddress: [email], limit: 2 });
     const user = page.data[0];
@@ -430,6 +433,56 @@ export async function clerkUserExists(clerkUserId: string, caller: CallerInfo): 
     return true;
   } catch (err: unknown) {
     if (isNotFound(err)) return false;
+    throw new ClerkServiceError(errorStatus(err), errorBody(err));
+  }
+}
+
+const ORG_MEMBERS_CALLER = { method: "POST", path: "/internal/orgs/:orgId/members" };
+
+/**
+ * Server-only marker on a Clerk user created by staff adding a person to an
+ * org without inviting them (POST /internal/orgs/:orgId/members).
+ */
+export const STAFF_ADDED_SOURCE = "staff_added";
+
+/**
+ * Create a Clerk user carrying `email`, with no organization. Admin-created, so
+ * Clerk records the address as verified WITHOUT mailing it; no password
+ * (skipPasswordRequirement): the person signs in later by email code and is
+ * this same user. Fail loud: any Clerk failure throws ClerkServiceError.
+ */
+export async function createClerkUserForEmail(email: string): Promise<string> {
+  const clerk = await getClerkClient(ORG_MEMBERS_CALLER);
+  try {
+    const user = await clerk.users.createUser({
+      emailAddress: [email],
+      skipPasswordRequirement: true,
+      privateMetadata: { signupSource: STAFF_ADDED_SOURCE },
+    });
+    return user.id;
+  } catch (err: unknown) {
+    throw new ClerkServiceError(errorStatus(err), errorBody(err));
+  }
+}
+
+/**
+ * Make a Clerk user a member of a Clerk organization directly: a membership,
+ * not an invitation, so Clerk sends nothing. Fail loud: a refusal (already a
+ * member included) throws ClerkServiceError with Clerk's status and words.
+ */
+export async function createClerkOrgMembership(input: {
+  clerkOrgId: string;
+  clerkUserId: string;
+  role: string;
+}): Promise<void> {
+  const clerk = await getClerkClient(ORG_MEMBERS_CALLER);
+  try {
+    await clerk.organizations.createOrganizationMembership({
+      organizationId: input.clerkOrgId,
+      userId: input.clerkUserId,
+      role: input.role,
+    });
+  } catch (err: unknown) {
     throw new ClerkServiceError(errorStatus(err), errorBody(err));
   }
 }

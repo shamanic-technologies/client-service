@@ -1862,6 +1862,49 @@ const MemberInvitationSchema = z
   })
   .openapi("MemberInvitation");
 
+export const OrgMemberAddBodySchema = z
+  .object({
+    email: z.string().trim().toLowerCase().email().max(320).openapi({ example: "jane@acme.com" }),
+  })
+  .openapi("OrgMemberAddBody");
+
+const AddedOrgMemberSchema = z
+  .object({
+    member: z.object({
+      userId: z.string().uuid().openapi({ description: "Internal user uuid: the user an API key is minted for (the gateway's `x-user-id`)." }),
+      clerkUserId: z.string(),
+      email: z.string(),
+      orgId: z.string().uuid(),
+      role: z.string().openapi({ description: "Always `org:admin`: one role per team (same as an invitation)." }),
+    }),
+    userCreated: z.boolean().openapi({ description: "Our user row was created by this call." }),
+    membershipCreated: z.boolean().openapi({ description: "False: the person was already a member (idempotent replay)." }),
+  })
+  .openapi("AddedOrgMember");
+
+registry.registerPath({
+  method: "post",
+  path: "/internal/orgs/{orgId}/members",
+  summary: "Add a person to an org by email, sending them nothing",
+  description:
+    "Makes the identity-provider user for this email a member of the org directly (no invitation, no email). The user is created admin-side when the email has none (verified, never mailed, no password); when the person later signs in with that email they are this same user, in this org. Idempotent per (org, email). Staff only: the gateway gates it and mints the person's own API key from `member.userId`.",
+  security: [{ ApiKeyAuth: [] }],
+  request: {
+    params: MemberInvitationsOrgParamsSchema,
+    body: { content: { "application/json": { schema: OrgMemberAddBodySchema } } },
+  },
+  responses: {
+    201: { description: "Membership created", content: { "application/json": { schema: AddedOrgMemberSchema } } },
+    200: { description: "Already a member", content: { "application/json": { schema: AddedOrgMemberSchema } } },
+    400: { description: "`invalid_request`", content: { "application/json": { schema: ServiceErrorSchema } } },
+    401: { description: "Unauthorized", content: { "application/json": { schema: ErrorResponseSchema } } },
+    404: { description: "`org_not_found`", content: { "application/json": { schema: ServiceErrorSchema } } },
+    409: { description: "`org_has_no_identity`: a signed-out onboarding org not yet claimed, or an absorbed shell", content: { "application/json": { schema: ServiceErrorSchema } } },
+    422: { description: "`member_refused`: the identity provider refused; `message` is its sentence, safe to show", content: { "application/json": { schema: ServiceErrorSchema } } },
+    502: { description: "`identity_provider_failed`", content: { "application/json": { schema: ServiceErrorSchema } } },
+  },
+});
+
 registry.registerPath({
   method: "post",
   path: "/internal/orgs/{orgId}/member-invitations",
