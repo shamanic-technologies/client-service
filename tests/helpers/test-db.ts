@@ -1,3 +1,4 @@
+import { sql as raw } from "drizzle-orm";
 import { db, sql } from "../../src/db/index.js";
 import {
   orgs,
@@ -11,12 +12,17 @@ import {
   userLinkedinProfiles,
   agentSignupCodes,
   orgCreations,
+  signupFacts,
+  signupFactUnresolved,
 } from "../../src/db/schema.js";
 
 /**
  * Clean all test data from the database
  */
 export async function cleanTestData() {
+  await db.delete(signupFactUnresolved);
+  await db.execute(raw`DELETE FROM signup_facts WHERE withdrawn_of IS NOT NULL`);
+  await db.delete(signupFacts);
   await db.delete(agentSignupCodes);
   await db.delete(orgCreations);
   await db.delete(orgAcquisitions);
