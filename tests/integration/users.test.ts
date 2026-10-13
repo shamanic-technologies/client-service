@@ -120,22 +120,35 @@ describe("GET /internal/users", () => {
     const probe = await insertTestUser({ externalId: "system-probe", orgId: distribute.id });
     clerkOrgMembers({ org_doc: ["user_kevin"], org_dist: ["user_kevin"] });
 
-    const dist = await request(app).get("/internal/users").set("x-api-key", API_KEY).query({ orgId: distribute.id });
+    const dist = await request(app).get("/internal/users").set("x-api-key", API_KEY).query({ orgId: distribute.id, allMembers: "true" });
     expect(dist.status).toBe(200);
     expect(dist.body.users.map((u: { id: string }) => u.id).sort()).toEqual([kevin.id, probe.id].sort());
     expect(dist.body.total).toBe(2);
     expect(dist.body.users.find((u: { id: string }) => u.id === kevin.id)).toMatchObject({ email: "kevin@test.com", firstName: "Kevin" });
 
-    const doc = await request(app).get("/internal/users").set("x-api-key", API_KEY).query({ externalOrgId: "org_doc" });
+    const doc = await request(app).get("/internal/users").set("x-api-key", API_KEY).query({ externalOrgId: "org_doc", allMembers: "true" });
     expect(doc.status).toBe(200);
     expect(doc.body.users.map((u: { id: string }) => u.id)).toEqual([kevin.id]);
+  });
+
+  it("without allMembers, lists only the users whose last active org it is and never asks Clerk", async () => {
+    const docDinners = await insertTestOrg({ externalId: "org_doc" });
+    const distribute = await insertTestOrg({ externalId: "org_dist" });
+    await insertTestUser({ externalId: "user_kevin", email: "kevin@test.com", orgId: docDinners.id });
+    const probe = await insertTestUser({ externalId: "system-probe", orgId: distribute.id });
+    clerkOrgMembers({ org_dist: ["user_kevin"] });
+
+    const res = await request(app).get("/internal/users").set("x-api-key", API_KEY).query({ orgId: distribute.id });
+    expect(res.status).toBe(200);
+    expect(res.body.users.map((u: { id: string }) => u.id)).toEqual([probe.id]);
+    expect(orgMembershipListMock).not.toHaveBeenCalled();
   });
 
   it("an org Clerk does not know lists its users.org_id rows", async () => {
     const org = await insertTestOrg({ externalId: "org_gone" });
     const u = await insertTestUser({ externalId: "user-a", email: "a@test.com", orgId: org.id });
 
-    const res = await request(app).get("/internal/users").set("x-api-key", API_KEY).query({ orgId: org.id });
+    const res = await request(app).get("/internal/users").set("x-api-key", API_KEY).query({ orgId: org.id, allMembers: "true" });
     expect(res.status).toBe(200);
     expect(res.body.users.map((x: { id: string }) => x.id)).toEqual([u.id]);
   });
@@ -144,7 +157,7 @@ describe("GET /internal/users", () => {
     const org = await insertTestOrg({ externalId: "anon-minted", anonymousAt: new Date() });
     await insertTestUser({ externalId: "user-anon", orgId: org.id });
 
-    const res = await request(app).get("/internal/users").set("x-api-key", API_KEY).query({ orgId: org.id });
+    const res = await request(app).get("/internal/users").set("x-api-key", API_KEY).query({ orgId: org.id, allMembers: "true" });
     expect(res.status).toBe(200);
     expect(res.body.total).toBe(1);
     expect(orgMembershipListMock).not.toHaveBeenCalled();
@@ -155,7 +168,7 @@ describe("GET /internal/users", () => {
     await insertTestUser({ externalId: "user-x", orgId: org.id });
     orgMembershipListMock.mockRejectedValue(Object.assign(new Error("boom"), { status: 503 }));
 
-    const res = await request(app).get("/internal/users").set("x-api-key", API_KEY).query({ orgId: org.id });
+    const res = await request(app).get("/internal/users").set("x-api-key", API_KEY).query({ orgId: org.id, allMembers: "true" });
     expect(res.status).toBe(502);
     expect(res.body.reason).toBe("identity_provider_unavailable");
   });

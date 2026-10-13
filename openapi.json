@@ -2342,7 +2342,7 @@
     },
     "/internal/users": {
       "get": {
-        "summary": "List users filtered by org: every Clerk member of the org plus users whose last active org it is",
+        "summary": "List users filtered by org (last active org; allMembers=true adds every Clerk member of the org)",
         "security": [
           {
             "ApiKeyAuth": []
@@ -2373,6 +2373,20 @@
             },
             "required": false,
             "name": "email",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "true",
+                "false"
+              ],
+              "description": "With orgId/externalOrgId: \"true\" also lists every user the identity provider (Clerk) holds as a member of the org, whatever org they were last active in. Includes staff who are members of a client org. Default: only users whose last active org it is."
+            },
+            "required": false,
+            "description": "With orgId/externalOrgId: \"true\" also lists every user the identity provider (Clerk) holds as a member of the org, whatever org they were last active in. Includes staff who are members of a client org. Default: only users whose last active org it is.",
+            "name": "allMembers",
             "in": "query"
           },
           {
