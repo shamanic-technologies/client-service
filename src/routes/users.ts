@@ -44,11 +44,14 @@ router.get("/internal/users/:userId", requireApiKey, async (req, res) => {
 /**
  * GET /internal/users - List users filtered by org and/or email.
  *
- * Filtered by org, the list is the org's PEOPLE: every user the identity
- * provider (Clerk) holds as a member of the org, plus every user whose
- * `users.org_id` is the org. `users.org_id` alone is one org per person (the
- * last active one), so a person in several orgs would be missing from all but
- * one. Clerk unreachable is a 502, never a shorter list.
+ * Filtered by org, the default list is the users whose `users.org_id` (the org
+ * they were last active in) is the org: one org per person. `allMembers=true`
+ * asks for the org's PEOPLE instead: that list plus every user the identity
+ * provider (Clerk) holds as a member of the org, so a person in several orgs is
+ * listed in each. It is opt-in because staff are Clerk members of the client
+ * orgs they set up, and callers that read this list as "the customer's people"
+ * (billing's own-org test, features' owner email) must not start seeing them.
+ * Clerk unreachable is a 502, never a shorter list.
  */
 router.get("/internal/users", requireApiKey, async (req, res) => {
   try {
@@ -57,7 +60,7 @@ router.get("/internal/users", requireApiKey, async (req, res) => {
       return res.status(400).json({ error: "Invalid query parameters", details: parsed.error.flatten() });
     }
 
-    const { orgId, externalOrgId, email, limit, offset } = parsed.data;
+    const { orgId, externalOrgId, email, allMembers, limit, offset } = parsed.data;
 
     const empty = { users: [], total: 0, ...(limit !== undefined && { limit }), ...(offset !== undefined && { offset }) };
     const orgColumns = {
@@ -82,7 +85,7 @@ router.get("/internal/users", requireApiKey, async (req, res) => {
     // Build where conditions
     const conditions: SQL[] = [];
     if (resolvedOrgId) {
-      const memberIdentities = org ? await getOrgMemberIdentities(org) : [];
+      const memberIdentities = org && allMembers === "true" ? await getOrgMemberIdentities(org) : [];
       conditions.push(
         memberIdentities.length > 0
           ? (or(eq(users.orgId, resolvedOrgId), inArray(users.externalId, memberIdentities)) as SQL)

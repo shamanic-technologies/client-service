@@ -142,6 +142,13 @@ export const ListUsersQuerySchema = z
     orgId: z.string().uuid().optional(),
     externalOrgId: z.string().min(1).optional(),
     email: z.string().optional(),
+    allMembers: z
+      .enum(["true", "false"])
+      .optional()
+      .openapi({
+        description:
+          "With orgId/externalOrgId: \"true\" also lists every user the identity provider (Clerk) holds as a member of the org, whatever org they were last active in. Includes staff who are members of a client org. Default: only users whose last active org it is.",
+      }),
     limit: z.coerce.number().int().min(1).optional(),
     offset: z.coerce.number().int().min(0).optional(),
   })
@@ -867,7 +874,7 @@ registry.registerPath({
 registry.registerPath({
   method: "get",
   path: "/internal/users",
-  summary: "List users filtered by org: every Clerk member of the org plus users whose last active org it is",
+  summary: "List users filtered by org (last active org; allMembers=true adds every Clerk member of the org)",
   security: [{ ApiKeyAuth: [] }],
   request: {
     query: ListUsersQuerySchema,
