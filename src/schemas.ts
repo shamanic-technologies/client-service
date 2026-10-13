@@ -867,7 +867,7 @@ registry.registerPath({
 registry.registerPath({
   method: "get",
   path: "/internal/users",
-  summary: "List users filtered by org",
+  summary: "List users filtered by org: every Clerk member of the org plus users whose last active org it is",
   security: [{ ApiKeyAuth: [] }],
   request: {
     query: ListUsersQuerySchema,
@@ -887,6 +887,10 @@ registry.registerPath({
     },
     500: {
       description: "Internal server error",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+    502: {
+      description: "The identity provider (Clerk) could not be asked for the org's members (reason: identity_provider_unavailable)",
       content: { "application/json": { schema: ErrorResponseSchema } },
     },
   },
