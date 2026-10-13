@@ -1906,3 +1906,74 @@ registry.registerPath({
     502: { description: "`identity_provider_failed`", content: { "application/json": { schema: ServiceErrorSchema } } },
   },
 });
+
+// --- Signup facts: "a real person signed up", stated by the account owner ---
+
+export const SignupFactsQuerySchema = z.object({
+  since: z.coerce.number().int().min(0).optional(),
+  limit: z.coerce.number().int().min(1).max(500).optional(),
+});
+
+const SignupFactSchema = z
+  .object({
+    factId: z.string().uuid(),
+    seq: z.number().int().openapi({ description: "Total order of the feed. Pass the last one you copied as `since`." }),
+    type: z.enum(["signup", "withdrawn"]),
+    brandId: z.string().uuid().openapi({ description: "The brand this fact is about: distribute.you (f4d73dab-1f9d-49b2-b16e-63ecde76a5eb)." }),
+    customerOrgId: z.string().uuid().openapi({ description: "Internal uuid of the org that signed up (the customer account)." }),
+    clerkOrgId: z.string().nullable(),
+    userId: z.string().uuid().nullable().openapi({ description: "Our internal user id of the person, when we hold a row for them." }),
+    clerkUserId: z.string().nullable(),
+    email: z.string().nullable().openapi({ description: "Primary address. Null for a phone-origin account (its address is a placeholder)." }),
+    firstName: z.string().nullable(),
+    lastName: z.string().nullable(),
+    fullName: z.string().nullable(),
+    phone: z.string().nullable(),
+    occurredAt: z.string().openapi({ description: "When it happened (never when we recorded it). See dateBasis." }),
+    dateBasis: z.enum(["org_created_at", "org_claimed_at"]),
+    withdrawnOf: z.string().uuid().nullable().openapi({ description: "On a `withdrawn` fact: the signup fact it corrects." }),
+    withdrawnReason: z.enum(["org_deleted", "org_absorbed"]).nullable(),
+    recordedAt: z.string(),
+  })
+  .openapi("SignupFact");
+
+export const SignupFactsResponseSchema = z
+  .object({
+    facts: z.array(SignupFactSchema),
+    nextCursor: z.string().openapi({ description: "The `seq` to pass as `since` next time." }),
+    hasMore: z.boolean(),
+  })
+  .openapi("SignupFactsResponse");
+
+registry.registerPath({
+  method: "get",
+  path: "/internal/signup-facts",
+  summary: "Every real signup to distribute.you, as a dated append-only fact feed",
+  description:
+    "A SIGNUP is an org becoming real: created with an identity provider, or claimed after a signed-out onboarding walk (same definition as POST /internal/orgs/real). The person is the identity-provider user who created the org. Every fact names the brand it is about (distribute.you), so a consumer files it in that brand's own funnel exactly like any brand's CRM signup.\n\nAPPEND-ONLY. One `signup` per org, ever. A correction (the org was torn down, or was an empty shell absorbed at a claim) is a `withdrawn` fact naming the signup it corrects in `withdrawnOf`, carrying the same subject; nothing is ever updated or deleted, so a consumer copies each fact once, in `seq` order.\n\nFacts are derived by a reconciliation that runs every minute; its first pass stated every existing real org. An org whose person cannot be named (its identity-provider org no longer exists) states nothing. Synthetic platform identities (`system-*`) and anonymous walks never claimed are never signups.",
+  security: [{ ApiKeyAuth: [] }],
+  request: { query: SignupFactsQuerySchema },
+  responses: {
+    200: { description: "Facts after `since`, in `seq` order", content: { "application/json": { schema: SignupFactsResponseSchema } } },
+    400: { description: "Bad cursor or limit", content: { "application/json": { schema: ErrorResponseSchema } } },
+    401: { description: "Unauthorized", content: { "application/json": { schema: ErrorResponseSchema } } },
+    500: { description: "Read failed", content: { "application/json": { schema: ErrorResponseSchema } } },
+  },
+});
+
+export const SignupFactsReconcileResponseSchema = z
+  .object({ stated: z.number().int(), withdrawn: z.number().int(), unresolved: z.number().int() })
+  .openapi("SignupFactsReconcileResponse");
+
+registry.registerPath({
+  method: "post",
+  path: "/internal/signup-facts/reconcile",
+  summary: "Run the signup-fact reconciliation now (it also runs every minute)",
+  description: "Idempotent: states what is new, withdraws what stopped being real, and reports the counts. A pass with nothing new reports zeros and asks the identity provider nothing.",
+  security: [{ ApiKeyAuth: [] }],
+  responses: {
+    200: { description: "What this pass wrote", content: { "application/json": { schema: SignupFactsReconcileResponseSchema } } },
+    401: { description: "Unauthorized", content: { "application/json": { schema: ErrorResponseSchema } } },
+    502: { description: "The identity provider could not be read; nothing was written", content: { "application/json": { schema: ErrorResponseSchema } } },
+  },
+});
