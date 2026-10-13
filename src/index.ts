@@ -9,7 +9,6 @@ import { dirname, join } from "path";
 import { migrate } from "drizzle-orm/postgres-js/migrator";
 import { db } from "./db/index.js";
 import { registerEmailTemplates } from "./lib/transactional-email-client.js";
-import { startSignupFactTicker } from "./lib/signup-facts.js";
 import healthRoutes from "./routes/health.js";
 import resolveRoutes from "./routes/resolve.js";
 import phoneAccountsRoutes from "./routes/phone-accounts.js";
@@ -28,7 +27,6 @@ import userLinkedinProfileRoutes from "./routes/user-linkedin-profile.js";
 import agentSignupsRoutes from "./routes/agent-signups.js";
 import orgCreateRoutes from "./routes/org-create.js";
 import orgMemberInvitationsRoutes from "./routes/org-member-invitations.js";
-import signupFactsRoutes from "./routes/signup-facts.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -77,7 +75,6 @@ app.use(userLinkedinProfileRoutes);
 app.use(agentSignupsRoutes);
 app.use(orgCreateRoutes);
 app.use(orgMemberInvitationsRoutes);
-app.use(signupFactsRoutes);
 app.use(transferBrandRoutes);
 
 // 404 handler
@@ -103,8 +100,6 @@ if (process.env.NODE_ENV !== "test") {
         console.log(`Client service running on port ${PORT}`);
         // After listen: an upsert of our own email templates, never awaited by boot.
         void registerEmailTemplates();
-        // After listen: the signup-fact reconciliation, first pass a minute after boot.
-        startSignupFactTicker();
       });
     })
     .catch((err) => {

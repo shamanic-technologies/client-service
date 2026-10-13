@@ -1,4 +1,4 @@
-import { pgTable, uuid, text, timestamp, uniqueIndex, index, jsonb, serial, bigserial, integer, check, type AnyPgColumn } from "drizzle-orm/pg-core";
+import { pgTable, uuid, text, timestamp, uniqueIndex, index, jsonb, serial, integer, check } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 
 export const orgs = pgTable(
@@ -388,53 +388,3 @@ export const orgCreations = pgTable(
   ]
 );
 
-/**
- * "A real person signed up to distribute.you", stated as a dated, append-only
- * fact (`src/lib/signup-facts.ts`). One `signup` per real org, ever; a
- * correction is a `withdrawn` row naming the fact it corrects. No FK to orgs:
- * the fact outlives the org it is about. Every column is served and NEVER
- * updated — a consumer copies each row once.
- */
-export const signupFacts = pgTable(
-  "signup_facts",
-  {
-    id: uuid("id").primaryKey().defaultRandom(),
-    seq: bigserial("seq", { mode: "number" }).notNull(),
-    type: text("type").notNull(),
-    brandId: uuid("brand_id").notNull(),
-    customerOrgId: uuid("customer_org_id").notNull(),
-    clerkOrgId: text("clerk_org_id"),
-    userId: uuid("user_id"),
-    clerkUserId: text("clerk_user_id"),
-    email: text("email"),
-    firstName: text("first_name"),
-    lastName: text("last_name"),
-    phone: text("phone"),
-    occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull(),
-    dateBasis: text("date_basis").notNull(),
-    withdrawnOf: uuid("withdrawn_of").references((): AnyPgColumn => signupFacts.id),
-    withdrawnReason: text("withdrawn_reason"),
-    recordedAt: timestamp("recorded_at", { withTimezone: true }).notNull().defaultNow(),
-  },
-  (table) => [
-    check("signup_facts_type_check", sql`${table.type} IN ('signup', 'withdrawn')`),
-    uniqueIndex("idx_signup_facts_seq").on(table.seq),
-    uniqueIndex("idx_signup_facts_one_signup_per_org")
-      .on(table.customerOrgId)
-      .where(sql`${table.type} = 'signup'`),
-    uniqueIndex("idx_signup_facts_one_withdrawal")
-      .on(table.withdrawnOf)
-      .where(sql`${table.withdrawnOf} IS NOT NULL`),
-  ]
-);
-
-/** A real org whose person could not be named; looked at again once a day. */
-export const signupFactUnresolved = pgTable("signup_fact_unresolved", {
-  orgId: uuid("org_id")
-    .primaryKey()
-    .references(() => orgs.id, { onDelete: "cascade" }),
-  reason: text("reason").notNull(),
-  checkedAt: timestamp("checked_at", { withTimezone: true }).notNull().defaultNow(),
-});
-
-export type SignupFact = typeof signupFacts.$inferSelect;
