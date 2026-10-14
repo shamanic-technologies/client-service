@@ -2209,6 +2209,224 @@
         "required": [
           "maxAllowedMemberships"
         ]
+      },
+      "OrgOwnerTelegramSendResult": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "outcome": {
+                "type": "string",
+                "enum": [
+                  "sent"
+                ]
+              },
+              "target": {
+                "type": "string",
+                "enum": [
+                  "linked_chat",
+                  "platform_owner_chat"
+                ],
+                "description": "`linked_chat`: the owner linked their own chat through the bot link. `platform_owner_chat`: the org's owner is the platform owner, reached on the chat the platform bot already holds."
+              },
+              "telegramMessageId": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "outcome",
+              "target",
+              "telegramMessageId"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "outcome": {
+                "type": "string",
+                "enum": [
+                  "not_reachable"
+                ]
+              },
+              "reason": {
+                "type": "string",
+                "description": "Why, in words. Nothing was sent."
+              }
+            },
+            "required": [
+              "outcome",
+              "reason"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "outcome": {
+                "type": "string",
+                "enum": [
+                  "delivery_failed"
+                ]
+              },
+              "target": {
+                "type": "string",
+                "enum": [
+                  "linked_chat",
+                  "platform_owner_chat"
+                ],
+                "description": "`linked_chat`: the owner linked their own chat through the bot link. `platform_owner_chat`: the org's owner is the platform owner, reached on the chat the platform bot already holds."
+              },
+              "reason": {
+                "type": "string",
+                "description": "Telegram's refusal or the transport failure, in words."
+              }
+            },
+            "required": [
+              "outcome",
+              "target",
+              "reason"
+            ]
+          }
+        ]
+      },
+      "OrgOwnerTelegramMessageBody": {
+        "type": "object",
+        "properties": {
+          "text": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1000,
+            "description": "The one short line to send, as plain text. A link may sit inside it.",
+            "example": "Your post is live on LinkedIn: https://www.linkedin.com/feed/update/urn:li:activity:123"
+          }
+        },
+        "required": [
+          "text"
+        ]
+      },
+      "OrgOwnerTelegramStatus": {
+        "type": "object",
+        "properties": {
+          "reachable": {
+            "type": "boolean"
+          },
+          "target": {
+            "type": "string",
+            "enum": [
+              "linked_chat",
+              "platform_owner_chat"
+            ],
+            "description": "Present when reachable."
+          },
+          "linkedAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Present when reachable."
+          }
+        },
+        "required": [
+          "reachable"
+        ]
+      },
+      "OrgOwnerTelegramUnlinked": {
+        "type": "object",
+        "properties": {
+          "unlinked": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "unlinked"
+        ]
+      },
+      "OrgOwnerTelegramLinkCode": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "linkUrl": {
+            "type": "string",
+            "format": "uri",
+            "description": "`https://t.me/<bot>?start=<code>`: tapping it opens the bot, which links that chat."
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "code",
+          "linkUrl",
+          "expiresAt"
+        ]
+      },
+      "OrgOwnerTelegramLinkCodeBody": {
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Internal uuid of the member asking to link their Telegram (the gateway's `x-user-id`)."
+          }
+        },
+        "required": [
+          "userId"
+        ]
+      },
+      "OrgOwnerTelegramLinked": {
+        "type": "object",
+        "properties": {
+          "orgId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "orgName": {
+            "type": "string",
+            "nullable": true
+          },
+          "linkedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "confirmationSent": {
+            "type": "boolean",
+            "description": "Whether the bot's 'Connected' line reached the chat (false on a replay)."
+          }
+        },
+        "required": [
+          "orgId",
+          "orgName",
+          "linkedAt",
+          "confirmationSent"
+        ]
+      },
+      "OrgOwnerTelegramLinkBody": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "description": "The `<code>` of `/start <code>` the bot received."
+          },
+          "chatId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              }
+            ],
+            "description": "Telegram chat id that sent `/start <code>`.",
+            "example": "123456789"
+          }
+        },
+        "required": [
+          "code",
+          "chatId"
+        ]
       }
     },
     "parameters": {}
@@ -5595,6 +5813,376 @@
           },
           "502": {
             "description": "`identity_provider_failed`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/internal/orgs/{orgId}/owner-telegram/messages": {
+      "post": {
+        "summary": "Send one short line to an org's owner on Telegram",
+        "description": "For an automation reporting what it did on the org's behalf (e.g. a workflow that just published a post). Always 200 with a named `outcome`: `sent`; `not_reachable` (the owner has not linked a Telegram chat, nothing sent); `delivery_failed` (Telegram refused or could not be reached; `reason` in words). Never fails the caller's work. Identity headers (`x-org-id`, `x-user-id`, `x-run-id`, `x-brand-id`, `x-campaign-id`) may be forwarded; only `x-run-id` is read, for logs. No staff-actor suppression.",
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Internal org uuid."
+            },
+            "required": true,
+            "description": "Internal org uuid.",
+            "name": "orgId",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OrgOwnerTelegramMessageBody"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The named outcome",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrgOwnerTelegramSendResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`invalid_request`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`org_not_found`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/internal/orgs/{orgId}/owner-telegram": {
+      "get": {
+        "summary": "Is the org's owner reachable on Telegram?",
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Internal org uuid."
+            },
+            "required": true,
+            "description": "Internal org uuid.",
+            "name": "orgId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Reachability",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrgOwnerTelegramStatus"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`invalid_request`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`org_not_found`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "summary": "Stop sending the org's owner Telegram lines",
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Internal org uuid."
+            },
+            "required": true,
+            "description": "Internal org uuid.",
+            "name": "orgId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Unlinked (idempotent: `unlinked: false` when nothing was linked)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrgOwnerTelegramUnlinked"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`invalid_request`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`org_not_found`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/internal/orgs/{orgId}/owner-telegram/link-codes": {
+      "post": {
+        "summary": "Get a one-time link for the owner to connect their Telegram",
+        "description": "Self-serve: the dashboard shows `linkUrl`; the owner taps it, the platform bot receives `/start <code>` and its webhook calls `POST /internal/owner-telegram/links`. Good once, for 30 minutes.",
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Internal org uuid."
+            },
+            "required": true,
+            "description": "Internal org uuid.",
+            "name": "orgId",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OrgOwnerTelegramLinkCodeBody"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The link",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrgOwnerTelegramLinkCode"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`invalid_request`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`org_not_found`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceError"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "`bot_unavailable`: the platform bot is not configured or Telegram did not answer",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/internal/owner-telegram/links": {
+      "post": {
+        "summary": "The bot received `/start <code>`: link that chat as the org owner's",
+        "description": "Called by the platform bot's webhook. Replaces any chat linked before; sends a 'Connected' line to the chat. Replaying the same code from the same chat answers the same link.",
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OrgOwnerTelegramLinkBody"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Linked",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrgOwnerTelegramLinked"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`invalid_request`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`link_code_unknown`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`link_code_used`: already used from another chat",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceError"
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "`link_code_expired`",
             "content": {
               "application/json": {
                 "schema": {
