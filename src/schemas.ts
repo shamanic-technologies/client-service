@@ -2125,3 +2125,166 @@ registry.registerPath({
     ...membershipLimitErrors,
   },
 });
+
+// ── Telegram to an org's OWNER (src/lib/org-owner-telegram.ts) ───────────────
+
+export const OrgOwnerTelegramMessageBodySchema = z
+  .object({
+    text: z.string().trim().min(1).max(1000).openapi({
+      description: "The one short line to send, as plain text. A link may sit inside it.",
+      example: "Your post is live on LinkedIn: https://www.linkedin.com/feed/update/urn:li:activity:123",
+    }),
+  })
+  .openapi("OrgOwnerTelegramMessageBody");
+
+const OwnerTelegramTargetSchema = z.enum(["linked_chat", "platform_owner_chat"]).openapi({
+  description:
+    "`linked_chat`: the owner linked their own chat through the bot link. `platform_owner_chat`: the org's owner is the platform owner, reached on the chat the platform bot already holds.",
+});
+
+const OrgOwnerTelegramSendResultSchema = z
+  .discriminatedUnion("outcome", [
+    z.object({
+      outcome: z.literal("sent"),
+      target: OwnerTelegramTargetSchema,
+      telegramMessageId: z.number().int(),
+    }),
+    z.object({
+      outcome: z.literal("not_reachable"),
+      reason: z.string().openapi({ description: "Why, in words. Nothing was sent." }),
+    }),
+    z.object({
+      outcome: z.literal("delivery_failed"),
+      target: OwnerTelegramTargetSchema,
+      reason: z.string().openapi({ description: "Telegram's refusal or the transport failure, in words." }),
+    }),
+  ])
+  .openapi("OrgOwnerTelegramSendResult");
+
+const OrgOwnerTelegramStatusSchema = z
+  .object({
+    reachable: z.boolean(),
+    target: OwnerTelegramTargetSchema.optional().openapi({ description: "Present when reachable." }),
+    linkedAt: z.string().datetime().optional().openapi({ description: "Present when reachable." }),
+  })
+  .openapi("OrgOwnerTelegramStatus");
+
+export const OrgOwnerTelegramLinkCodeBodySchema = z
+  .object({
+    userId: z.string().uuid().openapi({ description: "Internal uuid of the member asking to link their Telegram (the gateway's `x-user-id`)." }),
+  })
+  .openapi("OrgOwnerTelegramLinkCodeBody");
+
+const OrgOwnerTelegramLinkCodeSchema = z
+  .object({
+    code: z.string(),
+    linkUrl: z.string().url().openapi({ description: "`https://t.me/<bot>?start=<code>`: tapping it opens the bot, which links that chat." }),
+    expiresAt: z.string().datetime(),
+  })
+  .openapi("OrgOwnerTelegramLinkCode");
+
+export const OrgOwnerTelegramLinkBodySchema = z
+  .object({
+    code: z.string().min(1).max(64).regex(/^[A-Za-z0-9_-]+$/).openapi({ description: "The `<code>` of `/start <code>` the bot received." }),
+    chatId: z
+      .union([z.string(), z.number().int()])
+      .transform((v) => String(v))
+      .pipe(z.string().regex(/^-?\d{1,20}$/))
+      .openapi({ description: "Telegram chat id that sent `/start <code>`.", example: "123456789" }),
+  })
+  .openapi("OrgOwnerTelegramLinkBody");
+
+const OrgOwnerTelegramLinkedSchema = z
+  .object({
+    orgId: z.string().uuid(),
+    orgName: z.string().nullable(),
+    linkedAt: z.string().datetime(),
+    confirmationSent: z.boolean().openapi({ description: "Whether the bot's 'Connected' line reached the chat (false on a replay)." }),
+  })
+  .openapi("OrgOwnerTelegramLinked");
+
+const ownerTelegramErrors = {
+  400: { description: "`invalid_request`", content: { "application/json": { schema: ServiceErrorSchema } } },
+  401: { description: "Unauthorized", content: { "application/json": { schema: ErrorResponseSchema } } },
+  404: { description: "`org_not_found`", content: { "application/json": { schema: ServiceErrorSchema } } },
+};
+
+registry.registerPath({
+  method: "post",
+  path: "/internal/orgs/{orgId}/owner-telegram/messages",
+  summary: "Send one short line to an org's owner on Telegram",
+  description:
+    "For an automation reporting what it did on the org's behalf (e.g. a workflow that just published a post). Always 200 with a named `outcome`: `sent`; `not_reachable` (the owner has not linked a Telegram chat, nothing sent); `delivery_failed` (Telegram refused or could not be reached; `reason` in words). Never fails the caller's work. Identity headers (`x-org-id`, `x-user-id`, `x-run-id`, `x-brand-id`, `x-campaign-id`) may be forwarded; only `x-run-id` is read, for logs. No staff-actor suppression.",
+  security: [{ ApiKeyAuth: [] }],
+  request: {
+    params: MemberInvitationsOrgParamsSchema,
+    body: { content: { "application/json": { schema: OrgOwnerTelegramMessageBodySchema } } },
+  },
+  responses: {
+    200: { description: "The named outcome", content: { "application/json": { schema: OrgOwnerTelegramSendResultSchema } } },
+    ...ownerTelegramErrors,
+  },
+});
+
+registry.registerPath({
+  method: "get",
+  path: "/internal/orgs/{orgId}/owner-telegram",
+  summary: "Is the org's owner reachable on Telegram?",
+  security: [{ ApiKeyAuth: [] }],
+  request: { params: MemberInvitationsOrgParamsSchema },
+  responses: {
+    200: { description: "Reachability", content: { "application/json": { schema: OrgOwnerTelegramStatusSchema } } },
+    ...ownerTelegramErrors,
+  },
+});
+
+registry.registerPath({
+  method: "delete",
+  path: "/internal/orgs/{orgId}/owner-telegram",
+  summary: "Stop sending the org's owner Telegram lines",
+  security: [{ ApiKeyAuth: [] }],
+  request: { params: MemberInvitationsOrgParamsSchema },
+  responses: {
+    200: {
+      description: "Unlinked (idempotent: `unlinked: false` when nothing was linked)",
+      content: { "application/json": { schema: z.object({ unlinked: z.boolean() }).openapi("OrgOwnerTelegramUnlinked") } },
+    },
+    ...ownerTelegramErrors,
+  },
+});
+
+registry.registerPath({
+  method: "post",
+  path: "/internal/orgs/{orgId}/owner-telegram/link-codes",
+  summary: "Get a one-time link for the owner to connect their Telegram",
+  description:
+    "Self-serve: the dashboard shows `linkUrl`; the owner taps it, the platform bot receives `/start <code>` and its webhook calls `POST /internal/owner-telegram/links`. Good once, for 30 minutes.",
+  security: [{ ApiKeyAuth: [] }],
+  request: {
+    params: MemberInvitationsOrgParamsSchema,
+    body: { content: { "application/json": { schema: OrgOwnerTelegramLinkCodeBodySchema } } },
+  },
+  responses: {
+    201: { description: "The link", content: { "application/json": { schema: OrgOwnerTelegramLinkCodeSchema } } },
+    502: { description: "`bot_unavailable`: the platform bot is not configured or Telegram did not answer", content: { "application/json": { schema: ServiceErrorSchema } } },
+    ...ownerTelegramErrors,
+  },
+});
+
+registry.registerPath({
+  method: "post",
+  path: "/internal/owner-telegram/links",
+  summary: "The bot received `/start <code>`: link that chat as the org owner's",
+  description:
+    "Called by the platform bot's webhook. Replaces any chat linked before; sends a 'Connected' line to the chat. Replaying the same code from the same chat answers the same link.",
+  security: [{ ApiKeyAuth: [] }],
+  request: { body: { content: { "application/json": { schema: OrgOwnerTelegramLinkBodySchema } } } },
+  responses: {
+    200: { description: "Linked", content: { "application/json": { schema: OrgOwnerTelegramLinkedSchema } } },
+    400: { description: "`invalid_request`", content: { "application/json": { schema: ServiceErrorSchema } } },
+    401: { description: "Unauthorized", content: { "application/json": { schema: ErrorResponseSchema } } },
+    404: { description: "`link_code_unknown`", content: { "application/json": { schema: ServiceErrorSchema } } },
+    409: { description: "`link_code_used`: already used from another chat", content: { "application/json": { schema: ServiceErrorSchema } } },
+    410: { description: "`link_code_expired`", content: { "application/json": { schema: ServiceErrorSchema } } },
+  },
+});

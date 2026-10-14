@@ -21,6 +21,7 @@ import orgMemberInvitationsRoutes from "../../src/routes/org-member-invitations.
 import orgMembersRoutes from "../../src/routes/org-members.js";
 import orgJoinLinkRoutes from "../../src/routes/org-join-link.js";
 import orgMembershipLimitRoutes from "../../src/routes/org-membership-limit.js";
+import orgOwnerTelegramRoutes from "../../src/routes/org-owner-telegram.js";
 
 /**
  * Create a test Express app instance with all routes
@@ -52,6 +53,7 @@ export function createTestApp() {
   app.use(orgMembersRoutes);
   app.use(orgJoinLinkRoutes);
   app.use(orgMembershipLimitRoutes);
+  app.use(orgOwnerTelegramRoutes);
 
   // 404 handler
   app.use((req, res) => {

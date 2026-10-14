@@ -388,3 +388,45 @@ export const orgCreations = pgTable(
   ]
 );
 
+
+/**
+ * Where an org's OWNER is reachable on Telegram through the platform bot
+ * (src/lib/org-owner-telegram.ts). No row = not reachable. `linked_chat`: the
+ * owner linked their own chat through the bot link; `platform_owner_chat`: the
+ * owner is the platform owner, whose chat the bot already holds (no chat id
+ * copied here). Cascades with the org.
+ */
+export const orgOwnerTelegram = pgTable(
+  "org_owner_telegram",
+  {
+    orgId: uuid("org_id")
+      .primaryKey()
+      .references(() => orgs.id, { onDelete: "cascade" }),
+    target: text("target").notNull(),
+    chatId: text("chat_id"),
+    linkedByUserId: uuid("linked_by_user_id"),
+    linkedAt: timestamp("linked_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    check("org_owner_telegram_target_check", sql`${table.target} IN ('linked_chat', 'platform_owner_chat')`),
+    check("org_owner_telegram_chat_iff_linked", sql`(${table.target} = 'linked_chat') = (${table.chatId} IS NOT NULL)`),
+  ]
+);
+
+/** One-time codes behind the bot link (hash only, good once, 30 minutes). */
+export const orgOwnerTelegramLinkCodes = pgTable(
+  "org_owner_telegram_link_codes",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    orgId: uuid("org_id")
+      .notNull()
+      .references(() => orgs.id, { onDelete: "cascade" }),
+    userId: uuid("user_id").notNull(),
+    codeHash: text("code_hash").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    consumedAt: timestamp("consumed_at", { withTimezone: true }),
+    consumedChatId: text("consumed_chat_id"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [uniqueIndex("idx_org_owner_telegram_link_codes_hash").on(table.codeHash)]
+);
