@@ -9,6 +9,7 @@ const clerkUsers = vi.hoisted(() => ({
 }));
 const clerkOrgs = vi.hoisted(() => ({
   createOrganizationMembership: vi.fn(),
+  deleteOrganizationMembership: vi.fn(),
   createOrganizationInvitation: vi.fn(),
 }));
 vi.mock("@clerk/backend", () => ({
@@ -65,10 +66,6 @@ describe("POST /internal/orgs/:orgId/members", () => {
   });
 
   afterEach(() => vi.unstubAllGlobals());
-  afterAll(async () => {
-    await cleanTestData();
-    await closeDb();
-  });
 
   it("creates the person admin-side and adds them as a member, sending no invitation", async () => {
     const res = await add({ email: " Prospect@Acme.com " });
@@ -134,5 +131,96 @@ describe("POST /internal/orgs/:orgId/members", () => {
 
   it("requires the service key", async () => {
     expect((await request(app).post(`/internal/orgs/${orgId}/members`).send({ email: "p@acme.com" })).status).toBe(401);
+  });
+});
+
+describe("DELETE /internal/orgs/:orgId/members/:userId", () => {
+  const app = createTestApp();
+  let orgId: string;
+  let clerkMembers: Map<string, string[]>;
+
+  const remove = (userId: string, o = orgId) =>
+    request(app).delete(`/internal/orgs/${o}/members/${userId}`).set("x-api-key", API_KEY);
+
+  beforeEach(async () => {
+    await cleanTestData();
+    [...Object.values(clerkUsers), ...Object.values(clerkOrgs)].forEach((m) => m.mockReset());
+    clerkMembers = new Map();
+    clerkOrgs.deleteOrganizationMembership.mockImplementation(
+      async ({ organizationId, userId }: { organizationId: string; userId: string }) => {
+        const orgsOf = clerkMembers.get(userId) ?? [];
+        if (!orgsOf.includes(organizationId)) throw Object.assign(new Error("Not Found"), { status: 404 });
+        clerkMembers.set(userId, orgsOf.filter((o) => o !== organizationId));
+        return {};
+      },
+    );
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ provider: "clerk", key: "sk_test_clerk" }) })),
+    );
+    process.env.KEY_SERVICE_URL = "https://key.test";
+    process.env.KEY_SERVICE_API_KEY = "key_key";
+    orgId = (await insertTestOrg({ externalId: "org_client" })).id;
+  });
+
+  afterEach(() => vi.unstubAllGlobals());
+  afterAll(async () => {
+    await cleanTestData();
+    await closeDb();
+  });
+
+  it("ends the membership and leaves the person's own org alone", async () => {
+    const own = await insertTestOrg({ externalId: "org_own" });
+    const u = await insertTestUser({ externalId: "user_adam", orgId: own.id });
+    clerkMembers.set("user_adam", ["org_own", "org_client"]);
+
+    const res = await remove(u.id);
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ userId: u.id, orgId, membershipRemoved: true, lastActiveOrgCleared: false });
+    expect(clerkOrgs.deleteOrganizationMembership).toHaveBeenCalledWith({ organizationId: "org_client", userId: "user_adam" });
+    expect(clerkMembers.get("user_adam")).toEqual(["org_own"]);
+    const [row] = await db.select().from(users).where(eq(users.id, u.id));
+    expect(row.orgId).toBe(own.id);
+  });
+
+  it("clears the last-active org when it was this one, so the org's user list stops naming them", async () => {
+    const u = await insertTestUser({ externalId: "user_x", orgId });
+    clerkMembers.set("user_x", ["org_client"]);
+
+    const res = await remove(u.id);
+    expect(res.body).toMatchObject({ membershipRemoved: true, lastActiveOrgCleared: true });
+    const list = await request(app).get("/internal/users").set("x-api-key", API_KEY).query({ orgId });
+    expect(list.body.total).toBe(0);
+  });
+
+  it("is idempotent: a non-member is a 200 with membershipRemoved false", async () => {
+    const u = await insertTestUser({ externalId: "user_y" });
+    const res = await remove(u.id);
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ membershipRemoved: false, lastActiveOrgCleared: false });
+  });
+
+  it("refuses an unknown user, an unknown org, an org with no identity, a bad id", async () => {
+    const u = await insertTestUser({ externalId: "user_z" });
+    expect((await remove("00000000-0000-4000-8000-000000000001")).body.error).toBe("user_not_found");
+    expect((await remove(u.id, "00000000-0000-4000-8000-000000000001")).body.error).toBe("org_not_found");
+    const anon = await insertTestOrg({ externalId: "anon_y", anonymousAt: new Date() });
+    expect((await remove(u.id, anon.id)).status).toBe(409);
+    expect((await remove("nope")).status).toBe(400);
+    expect(clerkOrgs.deleteOrganizationMembership).not.toHaveBeenCalled();
+  });
+
+  it("a Clerk refusal is a 422 in Clerk's words, a Clerk outage a 502", async () => {
+    const u = await insertTestUser({ externalId: "user_w" });
+    clerkOrgs.deleteOrganizationMembership.mockRejectedValueOnce({ status: 403, errors: [{ message: "Nope", longMessage: "Last admin" }] });
+    const refused = await remove(u.id);
+    expect(refused.status).toBe(422);
+    expect(refused.body.error).toBe("member_removal_refused");
+    clerkOrgs.deleteOrganizationMembership.mockRejectedValueOnce({ status: 503, errors: [{ message: "down" }] });
+    expect((await remove(u.id)).status).toBe(502);
+  });
+
+  it("requires the service key", async () => {
+    expect((await request(app).delete(`/internal/orgs/${orgId}/members/00000000-0000-4000-8000-000000000001`)).status).toBe(401);
   });
 });
