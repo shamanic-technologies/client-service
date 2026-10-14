@@ -666,3 +666,41 @@ export function clerkErrorMessage(body: string): string {
     return body;
   }
 }
+
+const MEMBERSHIP_LIMIT_PATH = "/internal/orgs/:orgId/membership-limit";
+
+export interface ClerkOrganizationMembershipLimit {
+  /** Clerk's own value: 0 means no limit. */
+  maxAllowedMemberships: number;
+  membersCount: number;
+}
+
+/** Read how many members one Clerk organization allows and has. Any failure throws ClerkServiceError. */
+export async function getClerkOrganizationMembershipLimit(clerkOrgId: string): Promise<ClerkOrganizationMembershipLimit> {
+  const clerk = await getClerkClient({ method: "GET", path: MEMBERSHIP_LIMIT_PATH });
+  try {
+    const org = await clerk.organizations.getOrganization({ organizationId: clerkOrgId, includeMembersCount: true });
+    return { maxAllowedMemberships: org.maxAllowedMemberships, membersCount: org.membersCount ?? 0 };
+  } catch (err: unknown) {
+    throw new ClerkServiceError(errorStatus(err), errorBody(err));
+  }
+}
+
+/**
+ * Set how many members one Clerk organization allows (Clerk's 0 = no limit).
+ * Clerk refuses a value its plan does not allow (402); that, like any failure,
+ * throws ClerkServiceError with Clerk's status and body.
+ */
+export async function setClerkOrganizationMembershipLimit(
+  clerkOrgId: string,
+  maxAllowedMemberships: number,
+): Promise<ClerkOrganizationMembershipLimit> {
+  const clerk = await getClerkClient({ method: "PUT", path: MEMBERSHIP_LIMIT_PATH });
+  try {
+    await clerk.organizations.updateOrganization(clerkOrgId, { maxAllowedMemberships });
+    const org = await clerk.organizations.getOrganization({ organizationId: clerkOrgId, includeMembersCount: true });
+    return { maxAllowedMemberships: org.maxAllowedMemberships, membersCount: org.membersCount ?? 0 };
+  } catch (err: unknown) {
+    throw new ClerkServiceError(errorStatus(err), errorBody(err));
+  }
+}

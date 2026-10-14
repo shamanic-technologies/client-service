@@ -29,6 +29,7 @@ import orgCreateRoutes from "./routes/org-create.js";
 import orgMemberInvitationsRoutes from "./routes/org-member-invitations.js";
 import orgMembersRoutes from "./routes/org-members.js";
 import orgJoinLinkRoutes from "./routes/org-join-link.js";
+import orgMembershipLimitRoutes from "./routes/org-membership-limit.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -79,6 +80,7 @@ app.use(orgCreateRoutes);
 app.use(orgMemberInvitationsRoutes);
 app.use(orgMembersRoutes);
 app.use(orgJoinLinkRoutes);
+app.use(orgMembershipLimitRoutes);
 app.use(transferBrandRoutes);
 
 // 404 handler
