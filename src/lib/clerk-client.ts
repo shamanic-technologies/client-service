@@ -487,6 +487,25 @@ export async function createClerkOrgMembership(input: {
   }
 }
 
+/**
+ * End a Clerk user's membership of a Clerk organization. Returns false when
+ * there was no such membership (404): removing is idempotent. Any other
+ * failure throws ClerkServiceError with Clerk's status and words.
+ */
+export async function deleteClerkOrgMembership(input: { clerkOrgId: string; clerkUserId: string }): Promise<boolean> {
+  const clerk = await getClerkClient({ method: "DELETE", path: "/internal/orgs/:orgId/members/:userId" });
+  try {
+    await clerk.organizations.deleteOrganizationMembership({
+      organizationId: input.clerkOrgId,
+      userId: input.clerkUserId,
+    });
+    return true;
+  } catch (err: unknown) {
+    if (isNotFound(err)) return false;
+    throw new ClerkServiceError(errorStatus(err), errorBody(err));
+  }
+}
+
 /** A pending (or just-revoked) invitation into a Clerk organization. */
 export interface ClerkOrgInvitation {
   id: string;

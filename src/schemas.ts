@@ -1862,6 +1862,20 @@ const MemberInvitationSchema = z
   })
   .openapi("MemberInvitation");
 
+export const OrgMemberParamsSchema = z.object({
+  orgId: z.string().uuid().openapi({ description: "Internal org uuid." }),
+  userId: z.string().uuid().openapi({ description: "Internal user uuid of the member to remove." }),
+});
+
+const RemovedOrgMemberSchema = z
+  .object({
+    userId: z.string().uuid(),
+    orgId: z.string().uuid(),
+    membershipRemoved: z.boolean().openapi({ description: "False: the person was not a member (idempotent replay)." }),
+    lastActiveOrgCleared: z.boolean().openapi({ description: "True: this org was the person's last active org; the pointer was cleared so the org's user list no longer names them." }),
+  })
+  .openapi("RemovedOrgMember");
+
 export const OrgMemberAddBodySchema = z
   .object({
     email: z.string().trim().toLowerCase().email().max(320).openapi({ example: "jane@acme.com" }),
@@ -1901,6 +1915,25 @@ registry.registerPath({
     404: { description: "`org_not_found`", content: { "application/json": { schema: ServiceErrorSchema } } },
     409: { description: "`org_has_no_identity`: a signed-out onboarding org not yet claimed, or an absorbed shell", content: { "application/json": { schema: ServiceErrorSchema } } },
     422: { description: "`member_refused`: the identity provider refused; `message` is its sentence, safe to show", content: { "application/json": { schema: ServiceErrorSchema } } },
+    502: { description: "`identity_provider_failed`", content: { "application/json": { schema: ServiceErrorSchema } } },
+  },
+});
+
+registry.registerPath({
+  method: "delete",
+  path: "/internal/orgs/{orgId}/members/{userId}",
+  summary: "Take a person out of an org",
+  description:
+    "Ends the identity-provider membership of this user in this org, so the dashboard, the gateway and the org's member list stop seeing them there. Clears the user's last-active org when it was this one. The user, their other memberships and their own orgs are untouched. Idempotent. Staff only: the gateway gates it.",
+  security: [{ ApiKeyAuth: [] }],
+  request: { params: OrgMemberParamsSchema },
+  responses: {
+    200: { description: "Removed, or was not a member (`membershipRemoved: false`)", content: { "application/json": { schema: RemovedOrgMemberSchema } } },
+    400: { description: "`invalid_request`", content: { "application/json": { schema: ServiceErrorSchema } } },
+    401: { description: "Unauthorized", content: { "application/json": { schema: ErrorResponseSchema } } },
+    404: { description: "`org_not_found` or `user_not_found`", content: { "application/json": { schema: ServiceErrorSchema } } },
+    409: { description: "`org_has_no_identity`: a signed-out onboarding org not yet claimed, or an absorbed shell", content: { "application/json": { schema: ServiceErrorSchema } } },
+    422: { description: "`member_removal_refused`: the identity provider refused (e.g. the last admin); `message` is its sentence, safe to show", content: { "application/json": { schema: ServiceErrorSchema } } },
     502: { description: "`identity_provider_failed`", content: { "application/json": { schema: ServiceErrorSchema } } },
   },
 });
