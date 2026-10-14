@@ -613,6 +613,49 @@ export async function revokeClerkOrgInvitation(
   }
 }
 
+/** An organization's name and server-only metadata, as Clerk holds them. */
+export interface ClerkOrganizationPrivate {
+  name: string;
+  privateMetadata: Record<string, unknown>;
+}
+
+const JOIN_LINK_PATH = "/internal/orgs/:orgId/join-link";
+
+/**
+ * Read one Clerk organization with its privateMetadata. Any failure (a 404
+ * included: our row names a Clerk org that must exist) throws ClerkServiceError.
+ */
+export async function getClerkOrganizationPrivate(
+  clerkOrgId: string,
+  method: string,
+): Promise<ClerkOrganizationPrivate> {
+  const clerk = await getClerkClient({ method, path: JOIN_LINK_PATH });
+  try {
+    const org = await clerk.organizations.getOrganization({ organizationId: clerkOrgId });
+    return { name: org.name, privateMetadata: (org.privateMetadata ?? {}) as Record<string, unknown> };
+  } catch (err: unknown) {
+    throw new ClerkServiceError(errorStatus(err), errorBody(err));
+  }
+}
+
+/**
+ * Write ONE key of a Clerk organization's privateMetadata (Clerk merges the
+ * patch; `null` removes the key). Fail loud: any failure throws ClerkServiceError.
+ */
+export async function setClerkOrganizationPrivateKey(
+  clerkOrgId: string,
+  key: string,
+  value: unknown,
+  method: string,
+): Promise<void> {
+  const clerk = await getClerkClient({ method, path: JOIN_LINK_PATH });
+  try {
+    await clerk.organizations.updateOrganizationMetadata(clerkOrgId, { privateMetadata: { [key]: value } });
+  } catch (err: unknown) {
+    throw new ClerkServiceError(errorStatus(err), errorBody(err));
+  }
+}
+
 /** Clerk's own sentence for a refusal, when it gave one. */
 export function clerkErrorMessage(body: string): string {
   try {

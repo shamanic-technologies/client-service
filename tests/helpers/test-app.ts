@@ -19,6 +19,7 @@ import agentSignupsRoutes from "../../src/routes/agent-signups.js";
 import orgCreateRoutes from "../../src/routes/org-create.js";
 import orgMemberInvitationsRoutes from "../../src/routes/org-member-invitations.js";
 import orgMembersRoutes from "../../src/routes/org-members.js";
+import orgJoinLinkRoutes from "../../src/routes/org-join-link.js";
 
 /**
  * Create a test Express app instance with all routes
@@ -48,6 +49,7 @@ export function createTestApp() {
   app.use(orgCreateRoutes);
   app.use(orgMemberInvitationsRoutes);
   app.use(orgMembersRoutes);
+app.use(orgJoinLinkRoutes);
 
   // 404 handler
   app.use((req, res) => {

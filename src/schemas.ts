@@ -1993,3 +1993,77 @@ registry.registerPath({
     502: { description: "`identity_provider_failed`", content: { "application/json": { schema: ServiceErrorSchema } } },
   },
 });
+
+// --- Org join link (one shareable link per org: anyone who opens it joins as admin) ---
+
+export const OrgJoinLinkCreateBodySchema = z
+  .object({
+    createdByUserId: z.string().uuid().openapi({ description: "Internal user uuid of the staff member minting it (the gateway's `x-user-id`). Recorded on the link." }),
+  })
+  .openapi("OrgJoinLinkCreateBody");
+
+const OrgJoinLinkSchema = z
+  .object({
+    url: z.string().openapi({
+      description:
+        "The link to share, e.g. in an email. Whoever opens it signs in or signs up on the dashboard with ANY email and lands in this org as an admin. Same link as the dashboard's Team page: no expiry, works until revoked.",
+      example: "https://dashboard.distribute.you/join/org_2abc.Zx9...?bn=Acme",
+    }),
+    createdAt: z.string(),
+  })
+  .openapi("OrgJoinLink");
+
+const joinLinkErrors = {
+  401: { description: "Unauthorized", content: { "application/json": { schema: ErrorResponseSchema } } },
+  404: { description: "`org_not_found` (or `user_not_found` for `createdByUserId` on POST)", content: { "application/json": { schema: ServiceErrorSchema } } },
+  409: { description: "`org_has_no_identity`: a signed-out onboarding org not yet claimed, or an absorbed shell", content: { "application/json": { schema: ServiceErrorSchema } } },
+  502: { description: "`identity_provider_failed`: could not read or write the link at the identity provider", content: { "application/json": { schema: ServiceErrorSchema } } },
+};
+
+registry.registerPath({
+  method: "get",
+  path: "/internal/orgs/{orgId}/join-link",
+  summary: "Read an org's shareable join link",
+  description: "`link: null` when the org has none (never minted, or revoked). Never spends, never sends.",
+  security: [{ ApiKeyAuth: [] }],
+  request: { params: MemberInvitationsOrgParamsSchema },
+  responses: {
+    200: { description: "The link, or null", content: { "application/json": { schema: z.object({ link: OrgJoinLinkSchema.nullable() }) } } },
+    400: { description: "`invalid_request`", content: { "application/json": { schema: ServiceErrorSchema } } },
+    ...joinLinkErrors,
+  },
+});
+
+registry.registerPath({
+  method: "post",
+  path: "/internal/orgs/{orgId}/join-link",
+  summary: "Mint an org's shareable join link (or return the existing one)",
+  description:
+    "One link per org: an existing link is returned (200, `created: false`), never a second one. Nothing is emailed to anyone. Whoever opens the link signs in or signs up with any email and becomes an admin of the org. No expiry: it works until revoked. Staff only: the gateway gates it.",
+  security: [{ ApiKeyAuth: [] }],
+  request: {
+    params: MemberInvitationsOrgParamsSchema,
+    body: { content: { "application/json": { schema: OrgJoinLinkCreateBodySchema } } },
+  },
+  responses: {
+    201: { description: "Minted", content: { "application/json": { schema: z.object({ link: OrgJoinLinkSchema, created: z.literal(true) }) } } },
+    200: { description: "The org already had one; it is returned", content: { "application/json": { schema: z.object({ link: OrgJoinLinkSchema, created: z.literal(false) }) } } },
+    400: { description: "`invalid_request`", content: { "application/json": { schema: ServiceErrorSchema } } },
+    ...joinLinkErrors,
+  },
+});
+
+registry.registerPath({
+  method: "delete",
+  path: "/internal/orgs/{orgId}/join-link",
+  summary: "Revoke an org's shareable join link",
+  description:
+    "The link stops working at once: opening it shows \"This invite link is no longer valid. Ask your team for a new one.\" Members who already joined stay. Minting again gives a NEW link. Idempotent: `revoked: false` when the org had none.",
+  security: [{ ApiKeyAuth: [] }],
+  request: { params: MemberInvitationsOrgParamsSchema },
+  responses: {
+    200: { description: "Revoked, or there was none", content: { "application/json": { schema: z.object({ revoked: z.boolean() }).openapi("OrgJoinLinkRevoked") } } },
+    400: { description: "`invalid_request`", content: { "application/json": { schema: ServiceErrorSchema } } },
+    ...joinLinkErrors,
+  },
+});
