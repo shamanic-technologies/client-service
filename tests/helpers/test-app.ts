@@ -20,6 +20,7 @@ import orgCreateRoutes from "../../src/routes/org-create.js";
 import orgMemberInvitationsRoutes from "../../src/routes/org-member-invitations.js";
 import orgMembersRoutes from "../../src/routes/org-members.js";
 import orgJoinLinkRoutes from "../../src/routes/org-join-link.js";
+import orgMembershipLimitRoutes from "../../src/routes/org-membership-limit.js";
 
 /**
  * Create a test Express app instance with all routes
@@ -49,7 +50,8 @@ export function createTestApp() {
   app.use(orgCreateRoutes);
   app.use(orgMemberInvitationsRoutes);
   app.use(orgMembersRoutes);
-app.use(orgJoinLinkRoutes);
+  app.use(orgJoinLinkRoutes);
+  app.use(orgMembershipLimitRoutes);
 
   // 404 handler
   app.use((req, res) => {

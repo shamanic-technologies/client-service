@@ -2067,3 +2067,61 @@ registry.registerPath({
     ...joinLinkErrors,
   },
 });
+
+// --- Org membership limit (how many people one org may hold) ---
+
+export const OrgMembershipLimitBodySchema = z
+  .object({
+    maxAllowedMemberships: z.number().int().min(1).nullable().openapi({
+      description:
+        "How many members the org may hold, or null for no limit. A value the identity provider's plan does not allow is refused (422 `limit_refused`), never clamped.",
+      example: 20,
+    }),
+  })
+  .openapi("OrgMembershipLimitBody");
+
+const OrgMembershipLimitSchema = z
+  .object({
+    maxAllowedMemberships: z.number().int().nullable().openapi({ description: "How many members the org may hold; null = no limit." }),
+    membersCount: z.number().int().openapi({ description: "How many members it holds now." }),
+  })
+  .openapi("OrgMembershipLimit");
+
+const membershipLimitErrors = {
+  400: { description: "`invalid_request`", content: { "application/json": { schema: ServiceErrorSchema } } },
+  401: { description: "Unauthorized", content: { "application/json": { schema: ErrorResponseSchema } } },
+  404: { description: "`org_not_found`", content: { "application/json": { schema: ServiceErrorSchema } } },
+  409: { description: "`org_has_no_identity`: a signed-out onboarding org not yet claimed, or an absorbed shell", content: { "application/json": { schema: ServiceErrorSchema } } },
+  502: { description: "`identity_provider_failed`", content: { "application/json": { schema: ServiceErrorSchema } } },
+};
+
+registry.registerPath({
+  method: "get",
+  path: "/internal/orgs/{orgId}/membership-limit",
+  summary: "Read how many people an org may hold",
+  description:
+    "Every org carries the identity provider's instance default (the highest its plan allows) unless staff set its own. Past the limit, a join through the join link, an invitation or an added member is refused.",
+  security: [{ ApiKeyAuth: [] }],
+  request: { params: MemberInvitationsOrgParamsSchema },
+  responses: {
+    200: { description: "The limit", content: { "application/json": { schema: OrgMembershipLimitSchema } } },
+    ...membershipLimitErrors,
+  },
+});
+
+registry.registerPath({
+  method: "put",
+  path: "/internal/orgs/{orgId}/membership-limit",
+  summary: "Set how many people an org may hold",
+  description: "Staff only: the gateway gates it. Sends nothing to anyone. Members already in stay.",
+  security: [{ ApiKeyAuth: [] }],
+  request: {
+    params: MemberInvitationsOrgParamsSchema,
+    body: { content: { "application/json": { schema: OrgMembershipLimitBodySchema } } },
+  },
+  responses: {
+    200: { description: "Set; the limit as the identity provider now holds it", content: { "application/json": { schema: OrgMembershipLimitSchema } } },
+    422: { description: "`limit_refused`: the identity provider's plan does not allow this value; `message` is its sentence", content: { "application/json": { schema: ServiceErrorSchema } } },
+    ...membershipLimitErrors,
+  },
+});
