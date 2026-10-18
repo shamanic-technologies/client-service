@@ -8,7 +8,8 @@ import { BillingServiceError } from "../lib/billing-service-client.js";
 
 /**
  * An AI agent opens an account by itself: email + phone, a code to the email,
- * the account for the code (src/lib/agent-signup.ts). api-service exposes the
+ * the account for the code (src/lib/agent-signup.ts). The completion can also
+ * bind a channel-verified WhatsApp number to that account (`whatsappPhone`). api-service exposes the
  * public routes and calls these with its service key.
  */
 const router = Router();

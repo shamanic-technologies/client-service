@@ -1844,6 +1844,16 @@
           "created": {
             "type": "boolean",
             "description": "true = this call created the account; false = the email already had one and it is returned."
+          },
+          "whatsappPhone": {
+            "type": "string",
+            "description": "Present only when the request sent `whatsappPhone`: the number now resolving to this account."
+          },
+          "whatsappPhoneMovedFromUserId": {
+            "type": "string",
+            "nullable": true,
+            "format": "uuid",
+            "description": "Present only when the request sent `whatsappPhone`: the user who held the number until this call (no longer resolves for it), or null when nobody else held it."
           }
         },
         "required": [
@@ -1869,6 +1879,12 @@
           "code": {
             "type": "string",
             "pattern": "^\\d{6}$"
+          },
+          "whatsappPhone": {
+            "type": "string",
+            "pattern": "^\\+[1-9]\\d{6,14}$",
+            "description": "OPTIONAL. A WhatsApp number the CHANNEL verified (the message came from it), E.164. Once the code proves the email, this number becomes the account's channel identity: GET /internal/phone-accounts?phone= returns this user and org from now on, and whoever held the number before (an old phone-origin account, another user) stops resolving for it. Same number + same user = no-op. Omit it and the completion behaves exactly as before. Never send the unverified start `phone` here.",
+            "example": "+33612345678"
           }
         },
         "required": [

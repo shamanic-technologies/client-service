@@ -156,11 +156,27 @@ export interface AgentAccount {
   created: boolean;
 }
 
+/** What binding a verified WhatsApp number to the proven account did. */
+export interface WhatsappPhoneBinding {
+  whatsappPhone: string;
+  /** The user who held the number until now (it no longer resolves to them); null when nobody or this same user. */
+  whatsappPhoneMovedFromUserId: string | null;
+}
+
 /** One provision at a time per email in this process: a double submit returns one account. */
 const inFlight = new Map<string, Promise<AgentAccount>>();
 
-/** Step 2. */
-export async function completeAgentSignup(input: { email: string; code: string }): Promise<AgentAccount> {
+/**
+ * Step 2. With `whatsappPhone` (a number the CHANNEL verified: the message came
+ * from it, owner 2026-10-18 "the sender's WhatsApp number IS their identity"),
+ * the number becomes the account's channel mapping key (`users.phone`) once the
+ * code has proved the email. Never the start's `phone`: that one is unverified.
+ */
+export async function completeAgentSignup(input: {
+  email: string;
+  code: string;
+  whatsappPhone?: string;
+}): Promise<AgentAccount & Partial<WhatsappPhoneBinding>> {
   const row = await verifyCode(input.email, input.code);
 
   const pending = inFlight.get(input.email);
@@ -174,7 +190,46 @@ export async function completeAgentSignup(input: { email: string; code: string }
     .set({ consumedAt: sql`COALESCE(${agentSignupCodes.consumedAt}, now())` })
     .where(eq(agentSignupCodes.id, row.id));
 
-  return account;
+  if (input.whatsappPhone === undefined) return account;
+  const binding = await bindWhatsappPhone(account.userId, input.whatsappPhone);
+  return { ...account, ...binding };
+}
+
+/**
+ * Makes `phone` resolve to `userId` on GET /internal/phone-accounts from now on.
+ * Whoever held it (a July phone-origin shell, another user) loses it in the same
+ * transaction, so `idx_users_phone` keeps one holder per number. The user's own
+ * earlier number, if any, is replaced: one channel number per user. The previous
+ * holder's account itself is untouched. Same number + same user = no-op.
+ */
+export async function bindWhatsappPhone(userId: string, phone: string): Promise<WhatsappPhoneBinding> {
+  try {
+    return await bindOnce(userId, phone);
+  } catch (err) {
+    // Two binds of an UNHELD number race past the row lock (nothing to lock);
+    // the unique index refuses the loser, whose second pass sees the winner.
+    const e = err as { code?: string; cause?: { code?: string } };
+    if ((e.code ?? e.cause?.code) !== "23505") throw err;
+    return bindOnce(userId, phone);
+  }
+}
+
+async function bindOnce(userId: string, phone: string): Promise<WhatsappPhoneBinding> {
+  return db.transaction(async (tx) => {
+    const holders = await tx
+      .select({ id: users.id })
+      .from(users)
+      .where(eq(users.phone, phone))
+      .for("update");
+    const previous = holders.find((h) => h.id !== userId);
+    if (previous) {
+      await tx.update(users).set({ phone: null, updatedAt: new Date() }).where(eq(users.id, previous.id));
+    }
+    if (holders.length === 0 || previous) {
+      await tx.update(users).set({ phone, updatedAt: new Date() }).where(eq(users.id, userId));
+    }
+    return { whatsappPhone: phone, whatsappPhoneMovedFromUserId: previous?.id ?? null };
+  });
 }
 
 async function provision(email: string, phone: string): Promise<AgentAccount> {

@@ -380,4 +380,101 @@ describe("agent-signups routes", () => {
       expect(res.status).toBe(401);
     });
   });
+
+  describe("POST /internal/agent-signups/complete with whatsappPhone", () => {
+    const WA = "+33770657585";
+    const completeWa = (code: string, whatsappPhone: unknown, email = EMAIL) =>
+      request(app)
+        .post("/internal/agent-signups/complete")
+        .set("x-api-key", API_KEY)
+        .send({ email, code, whatsappPhone });
+    const resolvePhone = (phone: string) =>
+      request(app).get("/internal/phone-accounts").query({ phone }).set("x-api-key", API_KEY);
+
+    it("binds the verified number: GET /internal/phone-accounts returns the proven account", async () => {
+      await start();
+      const res = await completeWa(lastCode(), WA);
+
+      expect(res.status).toBe(200);
+      expect(res.body).toMatchObject({ whatsappPhone: WA, whatsappPhoneMovedFromUserId: null, contactPhone: PHONE });
+
+      const resolved = await resolvePhone(WA);
+      expect(resolved.status).toBe(200);
+      expect(resolved.body).toMatchObject({ userId: res.body.userId, orgId: res.body.orgId, phone: WA });
+      // The unverified start phone never becomes a mapping key.
+      expect((await resolvePhone(PHONE)).status).toBe(404);
+    });
+
+    it("moves the number off its previous holder (a phone-origin shell), which stops resolving for it", async () => {
+      const shellOrg = await insertTestOrg({ externalId: "org_shell", name: "WhatsApp user" });
+      const [shell] = await db
+        .insert(users)
+        .values({ externalId: "user_shell", phone: WA, orgId: shellOrg.id })
+        .returning();
+      expect((await resolvePhone(WA)).body.userId).toBe(shell.id);
+
+      await start();
+      const res = await completeWa(lastCode(), WA);
+      expect(res.status).toBe(200);
+      expect(res.body.whatsappPhoneMovedFromUserId).toBe(shell.id);
+
+      const resolved = await resolvePhone(WA);
+      expect(resolved.body.userId).toBe(res.body.userId);
+      expect(resolved.body.orgId).toBe(res.body.orgId);
+      const [shellAfter] = await db.select().from(users).where(eq(users.id, shell.id));
+      expect(shellAfter.phone).toBeNull();
+      expect(shellAfter.orgId).toBe(shellOrg.id); // the old account itself is untouched
+      expect(await db.select().from(users).where(eq(users.phone, WA))).toHaveLength(1);
+    });
+
+    it("binds an EXISTING email account (real customer) and moves the number off another user", async () => {
+      const org = await insertTestOrg({ externalId: "org_existing", name: "Existing" });
+      const user = await insertTestUser({ externalId: "user_existing", email: EMAIL, orgId: org.id });
+      const otherOrg = await insertTestOrg({ externalId: "org_other", name: "Other" });
+      const other = await insertTestUser({ externalId: "user_other", email: "other@example.com", orgId: otherOrg.id });
+      await db.update(users).set({ phone: WA }).where(eq(users.id, other.id));
+      clerk.getUserList.mockResolvedValue({ data: [{ id: "user_existing", privateMetadata: {} }], totalCount: 1 });
+
+      await start();
+      const res = await completeWa(lastCode(), WA);
+      expect(res.status).toBe(200);
+      expect(res.body).toMatchObject({ userId: user.id, orgId: org.id, created: false, whatsappPhoneMovedFromUserId: other.id });
+
+      const resolved = await resolvePhone(WA);
+      expect(resolved.body).toMatchObject({ userId: user.id, orgId: org.id });
+    });
+
+    it("repeating the call is a no-op success", async () => {
+      await start();
+      const code = lastCode();
+      const first = await completeWa(code, WA);
+      clerk.getUserList.mockResolvedValue({
+        data: [{ id: "user_agent", privateMetadata: { signupSource: "agent_api" } }],
+        totalCount: 1,
+      });
+      const second = await completeWa(code, WA);
+
+      expect(second.status).toBe(200);
+      expect(second.body).toMatchObject({ userId: first.body.userId, whatsappPhone: WA, whatsappPhoneMovedFromUserId: null });
+      expect((await resolvePhone(WA)).body.userId).toBe(first.body.userId);
+    });
+
+    it("without whatsappPhone the completion is unchanged: no mapping key written, no new fields", async () => {
+      await start();
+      const res = await complete(lastCode());
+      expect(res.status).toBe(200);
+      expect(res.body).not.toHaveProperty("whatsappPhone");
+      expect(res.body).not.toHaveProperty("whatsappPhoneMovedFromUserId");
+      const [user] = await db.select().from(users).where(eq(users.id, res.body.userId));
+      expect(user.phone).toBeNull();
+    });
+
+    it("refuses a non-E.164 whatsappPhone with invalid_request, before any account work", async () => {
+      await start();
+      const res = await completeWa(lastCode(), "0770657585");
+      expect(res.status).toBe(400);
+      expect(res.body.error).toBe("invalid_request");
+      expect(clerk.createUser).not.toHaveBeenCalled();
+    });
+  });
 });

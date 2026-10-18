@@ -27,6 +27,8 @@ User and organization management service with Clerk authentication and PostgreSQ
 
 ### Internal (service-to-service, `x-api-key`)
 - `DELETE /internal/orgs/:orgId` - Cascade-teardown an org (`:orgId` = internal org UUID). Calls billing-service, campaign-service, runs-service, key-service, stripe-service, Clerk, then deletes client-service data. Fail-loud per step (non-2xx with the real upstream error on any failure), idempotent re-run.
+- `GET /internal/phone-accounts?phone=` - Resolve a WhatsApp number (E.164) to the account it identifies (`users.phone`, unique per number). 404 when unknown.
+- `POST /internal/agent-signups/complete` with optional `whatsappPhone` - Once the emailed code proves the email, a CHANNEL-verified WhatsApp number becomes that account's identity: `GET /internal/phone-accounts` returns this user + org from then on, the previous holder (old phone-origin account or another user) stops resolving for it (its account is otherwise untouched), and the response names it in `whatsappPhoneMovedFromUserId`. Same number + same user = no-op. Never the start's unverified `phone` (that stays `contact_phone`). Without the field the completion is unchanged.
 
 ## Environment Variables
 
