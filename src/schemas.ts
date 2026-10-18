@@ -1695,6 +1695,11 @@ export const AgentSignupCompleteBodySchema = z
   .object({
     email: AgentSignupEmail,
     code: z.string().trim().regex(/^\d{6}$/, "code must be the 6 digits from the email"),
+    whatsappPhone: E164Phone.optional().openapi({
+      description:
+        "OPTIONAL. A WhatsApp number the CHANNEL verified (the message came from it), E.164. Once the code proves the email, this number becomes the account's channel identity: GET /internal/phone-accounts?phone= returns this user and org from now on, and whoever held the number before (an old phone-origin account, another user) stops resolving for it. Same number + same user = no-op. Omit it and the completion behaves exactly as before. Never send the unverified start `phone` here.",
+      example: "+33612345678",
+    }),
   })
   .openapi("AgentSignupCompleteBody");
 
@@ -1709,6 +1714,19 @@ const AgentSignupCompleteResponseSchema = z
     created: z
       .boolean()
       .openapi({ description: "true = this call created the account; false = the email already had one and it is returned." }),
+    whatsappPhone: z
+      .string()
+      .optional()
+      .openapi({ description: "Present only when the request sent `whatsappPhone`: the number now resolving to this account." }),
+    whatsappPhoneMovedFromUserId: z
+      .string()
+      .uuid()
+      .nullable()
+      .optional()
+      .openapi({
+        description:
+          "Present only when the request sent `whatsappPhone`: the user who held the number until this call (no longer resolves for it), or null when nobody else held it.",
+      }),
   })
   .openapi("AgentSignupCompleteResponse");
 
