@@ -174,6 +174,16 @@ describe("agent-signups routes", () => {
   });
 
   describe("POST /internal/agent-signups/complete", () => {
+    it("names a free-mail account's org after the person, never the mail provider", async () => {
+      const email = "jane.doe@gmail.com";
+      await start(email);
+      const res = await complete(lastCode(), email);
+      expect(res.status).toBe(200);
+      expect(clerk.createOrganization).toHaveBeenCalledWith({ name: "Jane Doe", createdBy: "user_agent" });
+      const [org] = await db.select().from(orgs).where(eq(orgs.id, res.body.orgId));
+      expect(org.name).toBe("Jane Doe");
+    });
+
     it("creates a full account with the REAL email, the phone, the agent_api first touch, and NO free money", async () => {
       await start();
       const res = await complete(lastCode());
