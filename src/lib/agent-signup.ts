@@ -14,6 +14,7 @@ import {
 import { recordFirstTouch, readFirstTouch } from "./acquisition.js";
 import { resolveIdentity } from "./resolve-identity.js";
 import { markAgentApiSignup } from "./billing-service-client.js";
+import { orgNameForEmail } from "./org-name.js";
 import { notifyOwner } from "./owner-telegram.js";
 import { notifyStaffSignup } from "./transactional-email-client.js";
 
@@ -176,11 +177,6 @@ export async function completeAgentSignup(input: { email: string; code: string }
   return account;
 }
 
-/** The org display name for a new account: the email's domain. The person renames it on the dashboard. */
-function orgNameFor(email: string): string {
-  return email.split("@")[1] ?? email;
-}
-
 async function provision(email: string, phone: string): Promise<AgentAccount> {
   const existing = await findClerkUserByEmail(email);
   if (existing) return returnExisting(email, phone, existing.clerkUserId, existing.signupSource === AGENT_SIGNUP_SOURCE);
@@ -188,7 +184,7 @@ async function provision(email: string, phone: string): Promise<AgentAccount> {
 }
 
 async function createAccount(email: string, phone: string): Promise<AgentAccount> {
-  const orgName = orgNameFor(email);
+  const orgName = orgNameForEmail(email);
   const clerk = await createClerkEmailAccount(email, orgName);
 
   let local: { orgId: string; userId: string };
@@ -252,7 +248,7 @@ async function returnExisting(
     const first = memberships?.[0];
     const target = first
       ? { clerkOrgId: first.clerkOrgId, name: first.name }
-      : { clerkOrgId: (await createClerkOrganizationFor(clerkUserId, orgNameFor(email))).clerkOrgId, name: orgNameFor(email) };
+      : { clerkOrgId: (await createClerkOrganizationFor(clerkUserId, orgNameForEmail(email))).clerkOrgId, name: orgNameForEmail(email) };
     const identity = await resolveIdentity({
       externalOrgId: target.clerkOrgId,
       externalUserId: clerkUserId,
