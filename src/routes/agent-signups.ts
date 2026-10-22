@@ -5,6 +5,7 @@ import { AgentSignupError, completeAgentSignup, startAgentSignup } from "../lib/
 import { sendAgentSignupCode } from "../lib/transactional-email-client.js";
 import { ClerkServiceError } from "../lib/clerk-client.js";
 import { BillingServiceError } from "../lib/billing-service-client.js";
+import { errorReason } from "../lib/pg-error.js";
 
 /**
  * An AI agent opens an account by itself: email + phone, a code to the email,
@@ -38,7 +39,7 @@ router.post("/internal/agent-signups/start", requireApiKey, async (req, res) => 
     console.error("[client-service] agent signup code email failed:", error);
     return res.status(502).json({
       error: "code_email_failed",
-      message: `The code email could not be sent: ${error instanceof Error ? error.message : String(error)}`,
+      message: `The code email could not be sent: ${errorReason(error)}`,
     });
   }
 });
