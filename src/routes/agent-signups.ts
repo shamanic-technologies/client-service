@@ -70,7 +70,7 @@ router.post("/internal/agent-signups/complete", requireApiKey, async (req, res) 
     console.error("[client-service] agent signup completion error:", error);
     return res.status(500).json({
       error: "internal_error",
-      message: error instanceof Error ? error.message : "Agent signup failed",
+      message: error instanceof Error ? errorReason(error) : "Agent signup failed",
     });
   }
 });

@@ -3,6 +3,7 @@ import { requireApiKey } from "../middleware/auth.js";
 import { CreateOrgBodySchema } from "../schemas.js";
 import { createClientOrg, OrgProvisionError } from "../lib/org-provisioning.js";
 import { ClerkServiceError, clerkErrorMessage } from "../lib/clerk-client.js";
+import { errorReason } from "../lib/pg-error.js";
 
 /**
  * POST /internal/orgs - Create an organization for a new client on behalf of
@@ -31,7 +32,7 @@ router.post("/internal/orgs", requireApiKey, async (req, res) => {
       return res.status(502).json({ error: "identity_provider_failed", message: `Clerk: ${clerkErrorMessage(error.body)}` });
     }
     console.error("[client-service] org create failed:", error);
-    return res.status(500).json({ error: "internal_error", message: error instanceof Error ? error.message : "Org create failed" });
+    return res.status(500).json({ error: "internal_error", message: error instanceof Error ? errorReason(error) : "Org create failed" });
   }
 });
 

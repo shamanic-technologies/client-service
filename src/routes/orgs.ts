@@ -26,6 +26,7 @@ import {
   deleteRunsByOrg,
   InternalServiceTeardownError,
 } from "../lib/internal-service-client.js";
+import { errorReason } from "../lib/pg-error.js";
 
 const router = Router();
 
@@ -204,7 +205,7 @@ function handleTeardownError(error: unknown, res: Response) {
   }
   console.error("[client-service] Org teardown error:", error);
   return res.status(500).json({
-    error: error instanceof Error ? error.message : "Org teardown failed",
+    error: error instanceof Error ? errorReason(error) : "Org teardown failed",
   });
 }
 

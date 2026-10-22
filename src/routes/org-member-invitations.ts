@@ -12,6 +12,7 @@ import {
   revokeInvitation,
 } from "../lib/org-member-invitations.js";
 import { ClerkServiceError, clerkErrorMessage } from "../lib/clerk-client.js";
+import { errorReason } from "../lib/pg-error.js";
 
 /**
  * Invite a person into an org by email, list the pending invitations, revoke
@@ -49,7 +50,7 @@ function fail(res: Response, error: unknown, what: string) {
     return res.status(502).json({ error: "identity_provider_failed", message: `Clerk: ${clerkErrorMessage(error.body)}` });
   }
   console.error(`[client-service] member invitation ${what} failed:`, error);
-  return res.status(500).json({ error: "internal_error", message: error instanceof Error ? error.message : `${what} failed` });
+  return res.status(500).json({ error: "internal_error", message: error instanceof Error ? errorReason(error) : `${what} failed` });
 }
 
 router.post("/internal/orgs/:orgId/member-invitations", requireApiKey, async (req, res) => {
