@@ -14,6 +14,7 @@ import {
   ClerkServiceError,
 } from "../lib/clerk-client.js";
 import { ensureBillingWelcome, BillingServiceError } from "../lib/billing-service-client.js";
+import { errorReason } from "../lib/pg-error.js";
 
 const router = Router();
 
@@ -152,7 +153,7 @@ router.post("/internal/phone-accounts", requireApiKey, async (req, res) => {
     }
     console.error("[client-service] Phone-account provisioning error:", error);
     return res.status(500).json({
-      error: error instanceof Error ? error.message : "Phone-account provisioning failed",
+      error: error instanceof Error ? errorReason(error) : "Phone-account provisioning failed",
     });
   }
 });
