@@ -2,6 +2,7 @@ import { Router } from "express";
 import { requireApiKey } from "../middleware/auth.js";
 import { UserLinkedinProfileParamsSchema } from "../schemas.js";
 import { readLinkedinProfile, resolveLinkedinProfile } from "../lib/user-linkedin-profile.js";
+import { errorReason } from "../lib/pg-error.js";
 
 const router = Router();
 
@@ -40,7 +41,7 @@ router.post("/internal/users/:userId/linkedin-profile/resolve", requireApiKey, a
   } catch (error) {
     console.error("[client-service] POST linkedin-profile/resolve error:", error);
     return res.status(502).json({
-      error: error instanceof Error ? error.message : "Person lookup failed",
+      error: error instanceof Error ? errorReason(error) : "Person lookup failed",
       reason: "person_lookup_unavailable",
     });
   }

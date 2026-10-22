@@ -4,6 +4,7 @@ import { MemberInvitationsOrgParamsSchema, OrgJoinLinkCreateBodySchema } from ".
 import { ensureJoinLink, getJoinLink, revokeJoinLink } from "../lib/org-join-link.js";
 import { OrgInvitationError } from "../lib/org-member-invitations.js";
 import { ClerkServiceError, clerkErrorMessage } from "../lib/clerk-client.js";
+import { errorReason } from "../lib/pg-error.js";
 
 /**
  * An org's shareable join link (src/lib/org-join-link.ts): GET reads it, POST
@@ -33,7 +34,7 @@ function fail(res: Response, error: unknown, what: string) {
     return res.status(502).json({ error: "identity_provider_failed", message: `Clerk: ${clerkErrorMessage(error.body)}` });
   }
   console.error(`[client-service] ${what} failed:`, error);
-  return res.status(500).json({ error: "internal_error", message: error instanceof Error ? error.message : `${what} failed` });
+  return res.status(500).json({ error: "internal_error", message: error instanceof Error ? errorReason(error) : `${what} failed` });
 }
 
 router.get("/internal/orgs/:orgId/join-link", requireApiKey, async (req, res) => {

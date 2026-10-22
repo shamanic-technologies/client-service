@@ -4,6 +4,7 @@ import { OrgMemberAddBodySchema, MemberInvitationsOrgParamsSchema, OrgMemberPara
 import { addOrgMember, removeOrgMember } from "../lib/org-members.js";
 import { OrgInvitationError } from "../lib/org-member-invitations.js";
 import { ClerkServiceError, clerkErrorMessage } from "../lib/clerk-client.js";
+import { errorReason } from "../lib/pg-error.js";
 
 /**
  * Add a person (by email) to an org as a member, sending them nothing
@@ -43,7 +44,7 @@ router.post("/internal/orgs/:orgId/members", requireApiKey, async (req, res) => 
       return res.status(502).json({ error: "identity_provider_failed", message: `Clerk: ${clerkErrorMessage(error.body)}` });
     }
     console.error("[client-service] add org member failed:", error);
-    return res.status(500).json({ error: "internal_error", message: error instanceof Error ? error.message : "add member failed" });
+    return res.status(500).json({ error: "internal_error", message: error instanceof Error ? errorReason(error) : "add member failed" });
   }
 });
 
@@ -74,7 +75,7 @@ router.delete("/internal/orgs/:orgId/members/:userId", requireApiKey, async (req
       return res.status(502).json({ error: "identity_provider_failed", message: `Clerk: ${clerkErrorMessage(error.body)}` });
     }
     console.error("[client-service] remove org member failed:", error);
-    return res.status(500).json({ error: "internal_error", message: error instanceof Error ? error.message : "remove member failed" });
+    return res.status(500).json({ error: "internal_error", message: error instanceof Error ? errorReason(error) : "remove member failed" });
   }
 });
 

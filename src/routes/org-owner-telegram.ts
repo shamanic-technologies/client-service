@@ -14,6 +14,7 @@ import {
   sendToOrgOwner,
   unlinkOrgOwnerTelegram,
 } from "../lib/org-owner-telegram.js";
+import { errorReason } from "../lib/pg-error.js";
 
 /**
  * Telegram to an org's OWNER through the platform bot (src/lib/org-owner-telegram.ts).
@@ -43,7 +44,7 @@ function fail(res: Response, error: unknown, what: string) {
     return res.status(STATUS[error.code]).json({ error: error.code, message: error.message });
   }
   console.error(`[client-service] ${what} failed:`, error);
-  return res.status(500).json({ error: "internal_error", message: error instanceof Error ? error.message : `${what} failed` });
+  return res.status(500).json({ error: "internal_error", message: error instanceof Error ? errorReason(error) : `${what} failed` });
 }
 
 router.post("/internal/orgs/:orgId/owner-telegram/messages", requireApiKey, async (req, res) => {

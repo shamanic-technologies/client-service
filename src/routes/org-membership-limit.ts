@@ -4,6 +4,7 @@ import { MemberInvitationsOrgParamsSchema, OrgMembershipLimitBodySchema } from "
 import { getMembershipLimit, setMembershipLimit } from "../lib/org-membership-limit.js";
 import { OrgInvitationError } from "../lib/org-member-invitations.js";
 import { ClerkServiceError, clerkErrorMessage } from "../lib/clerk-client.js";
+import { errorReason } from "../lib/pg-error.js";
 
 /**
  * How many people one org may hold (src/lib/org-membership-limit.ts): GET reads
@@ -35,7 +36,7 @@ function fail(res: Response, error: unknown, what: string, refusable: boolean) {
     return res.status(502).json({ error: "identity_provider_failed", message: `Clerk: ${clerkErrorMessage(error.body)}` });
   }
   console.error(`[client-service] ${what} failed:`, error);
-  return res.status(500).json({ error: "internal_error", message: error instanceof Error ? error.message : `${what} failed` });
+  return res.status(500).json({ error: "internal_error", message: error instanceof Error ? errorReason(error) : `${what} failed` });
 }
 
 router.get("/internal/orgs/:orgId/membership-limit", requireApiKey, async (req, res) => {
