@@ -9,6 +9,7 @@ import {
   assessHolderLocally,
   assessHolderUpstream,
 } from "../lib/identity-holder.js";
+import { pgDriverError } from "../lib/pg-error.js";
 
 const router = Router();
 
@@ -322,8 +323,10 @@ router.post("/internal/orgs/:orgId/claim", requireApiKey, async (req, res) => {
     // told — a collision on the slug is a name being taken, and reporting it
     // as `external_id_taken` says the identity belongs to somebody else when
     // it does not.
-    if (isUniqueViolation(error)) {
-      const constraint = violatedConstraint(error);
+    // drizzle wraps the driver error (DrizzleQueryError): code and constraint live on it.
+    const driverError = pgDriverError(error);
+    if (isUniqueViolation(driverError)) {
+      const constraint = violatedConstraint(driverError);
       if (constraint === SLUG_INDEX) {
         return res.status(409).json({
           error: "That organisation slug already belongs to another org",
