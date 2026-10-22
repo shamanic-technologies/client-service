@@ -9,6 +9,7 @@ import {
   ClaimInviteBodySchema,
   InviteStatusParamsSchema,
 } from "../schemas.js";
+import { errorReason } from "../lib/pg-error.js";
 
 const router = Router();
 
@@ -153,7 +154,7 @@ router.post("/internal/invites/claim", requireApiKey, async (req, res) => {
         console.error("[client-service] Referral notification to billing failed:", error);
         return res.status(502).json({
           error: "Invite recorded but billing-service could not be notified",
-          details: error instanceof Error ? error.message : String(error),
+          details: errorReason(error),
         });
       }
 

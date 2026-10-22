@@ -2,6 +2,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { and, eq, gt, isNull } from "drizzle-orm";
 import { db } from "../db/index.js";
 import { orgOwnerTelegram, orgOwnerTelegramLinkCodes, orgs } from "../db/schema.js";
+import { errorReason } from "./pg-error.js";
 
 /**
  * One short Telegram line to the OWNER OF AN ORG, through the platform bot
@@ -66,7 +67,7 @@ async function telegramSend(token: string, chatId: string, text: string): Promis
     }
     return { ok: true, messageId: json.result.message_id };
   } catch (err) {
-    return { ok: false, reason: `Telegram unreachable: ${err instanceof Error ? err.message : String(err)}` };
+    return { ok: false, reason: `Telegram unreachable: ${errorReason(err)}` };
   }
 }
 
@@ -124,7 +125,7 @@ async function getBotUsername(token: string): Promise<string> {
   if (botUsername?.token === token) return botUsername.username;
   const res = await fetch(`https://api.telegram.org/bot${token}/getMe`, { signal: AbortSignal.timeout(SEND_TIMEOUT_MS) }).catch(
     (err: unknown) => {
-      throw new OrgOwnerTelegramError("bot_unavailable", `Telegram unreachable: ${err instanceof Error ? err.message : String(err)}`);
+      throw new OrgOwnerTelegramError("bot_unavailable", `Telegram unreachable: ${errorReason(err)}`);
     },
   );
   const json = (await res.json().catch(() => null)) as { ok?: boolean; result?: { username?: string }; description?: string } | null;
