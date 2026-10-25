@@ -28,9 +28,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # pnpm version comes from package.json `packageManager` (pnpm@9.15.9, the
+      # Dockerfile's major); a `version:` input beside it fails action-setup.
       - uses: pnpm/action-setup@v4
-        with:
-          version: 9
 
       - uses: actions/setup-node@v4
         with:
