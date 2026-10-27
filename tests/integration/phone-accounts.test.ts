@@ -4,7 +4,8 @@ import { eq } from "drizzle-orm";
 
 // Mock the Clerk SDK — no real network/secret. Each provision creates a fresh
 // user+org id pair so idempotency can be asserted by call counts.
-const { createUserMock, createOrgMock, deleteUserMock, deleteOrgMock } = vi.hoisted(() => ({
+const { createUserMock, createOrgMock, deleteUserMock, deleteOrgMock, getUserListMock } = vi.hoisted(() => ({
+  getUserListMock: vi.fn(),
   createUserMock: vi.fn(),
   createOrgMock: vi.fn(),
   deleteUserMock: vi.fn(),
@@ -12,13 +13,14 @@ const { createUserMock, createOrgMock, deleteUserMock, deleteOrgMock } = vi.hois
 }));
 vi.mock("@clerk/backend", () => ({
   createClerkClient: () => ({
-    users: { createUser: createUserMock, deleteUser: deleteUserMock },
+    users: { createUser: createUserMock, deleteUser: deleteUserMock, getUserList: getUserListMock },
     organizations: { createOrganization: createOrgMock, deleteOrganization: deleteOrgMock },
   }),
 }));
 
 import { createTestApp } from "../helpers/test-app.js";
-import { cleanTestData, closeDb } from "../helpers/test-db.js";
+import { cleanTestData, closeDb, insertTestOrg, insertTestUser } from "../helpers/test-db.js";
+import { resetOnboardingPhoneSyncState } from "../../src/lib/onboarding-phone.js";
 import { db } from "../../src/db/index.js";
 import { users, orgs } from "../../src/db/schema.js";
 
@@ -47,12 +49,32 @@ describe("phone-accounts routes", () => {
       };
     });
 
+  /** What Clerk holds: each user's onboarding number on publicMetadata.phone. */
+  const clerkUsers = (list: Array<{ id: string; phone?: string }>) =>
+    getUserListMock.mockImplementation(async () => ({
+      data: list.map((u) => ({ id: u.id, publicMetadata: u.phone ? { phone: u.phone } : {} })),
+      totalCount: list.length,
+    }));
+
+  /** A dashboard signup: Clerk user + our org and user rows, as /internal/resolve leaves them. */
+  const signup = async (clerkUserId: string) => {
+    const org = await insertTestOrg({ externalId: `org_${clerkUserId}` });
+    const user = await insertTestUser({ externalId: clerkUserId, email: `${clerkUserId}@staff.test`, orgId: org.id });
+    return { org, user };
+  };
+
+  const resolve = (phone: string) =>
+    request(app).get("/internal/phone-accounts").query({ phone }).set("x-api-key", API_KEY);
+
   beforeEach(async () => {
     await cleanTestData();
     createUserMock.mockReset();
     createOrgMock.mockReset();
     deleteUserMock.mockReset();
     deleteOrgMock.mockReset();
+    getUserListMock.mockReset();
+    clerkUsers([]);
+    resetOnboardingPhoneSyncState();
     fetchMock.mockReset();
     vi.stubGlobal("fetch", fetchMock);
     process.env.KEY_SERVICE_URL = "https://key.test";
@@ -243,6 +265,102 @@ describe("phone-accounts routes", () => {
     it("requires the service api-key", async () => {
       const res = await request(app).get("/internal/phone-accounts").query({ phone: PHONE });
       expect(res.status).toBe(401);
+    });
+  });
+
+  describe("a number typed on onboarding", () => {
+    const TYPED = "+2349135497828";
+
+    it("resolves a new signup's typed number on the first message, no manual step", async () => {
+      const { org, user } = await signup("user_joshua");
+      clerkUsers([{ id: "user_joshua", phone: TYPED }, { id: "user_other" }]);
+
+      const res = await resolve(TYPED);
+
+      expect(res.status).toBe(200);
+      expect(res.body).toMatchObject({
+        orgId: org.id,
+        userId: user.id,
+        phone: TYPED,
+        clerkUserId: "user_joshua",
+        clerkOrgId: "org_user_joshua",
+        created: false,
+      });
+      // Typed number never becomes the verified channel key.
+      const [row] = await db.select().from(users).where(eq(users.id, user.id));
+      expect(row.phone).toBeNull();
+      expect(row.onboardingPhone).toBe(TYPED);
+    });
+
+    it("a WhatsApp-linked users.phone wins over someone else's typed number", async () => {
+      const { user: linked } = await signup("user_linked");
+      await db.update(users).set({ phone: TYPED }).where(eq(users.id, linked.id));
+      await signup("user_typed");
+      clerkUsers([{ id: "user_typed", phone: TYPED }]);
+
+      const res = await resolve(TYPED);
+
+      expect(res.status).toBe(200);
+      expect(res.body.userId).toBe(linked.id);
+    });
+
+    it("two accounts typed the same number: resolves to nobody (404)", async () => {
+      await signup("user_a");
+      await signup("user_b");
+      clerkUsers([{ id: "user_a", phone: TYPED }, { id: "user_b", phone: TYPED }]);
+
+      const res = await resolve(TYPED);
+
+      expect(res.status).toBe(404);
+    });
+
+    it("a number taken off Clerk stops resolving", async () => {
+      await signup("user_gone");
+      clerkUsers([{ id: "user_gone", phone: TYPED }]);
+      expect((await resolve(TYPED)).status).toBe(200);
+
+      // Cleared by the next sweep (boot, or any resolution miss).
+      clerkUsers([{ id: "user_gone" }]);
+      resetOnboardingPhoneSyncState();
+      expect((await resolve("+15550000002")).status).toBe(404);
+      expect((await resolve(TYPED)).status).toBe(404);
+    });
+
+    it("ignores a typed value that is not E.164", async () => {
+      await signup("user_bad");
+      clerkUsers([{ id: "user_bad", phone: "09135497828" }]);
+
+      expect((await resolve(TYPED)).status).toBe(404);
+    });
+
+    it("Clerk unreachable on a miss is a 502, never an unknown 404", async () => {
+      getUserListMock.mockRejectedValue(Object.assign(new Error("down"), { status: 503 }));
+
+      const res = await resolve(TYPED);
+
+      expect(res.status).toBe(502);
+      expect(res.body.error).toContain("identity_provider_unavailable");
+    });
+
+    it("a known linked phone never asks Clerk", async () => {
+      const { user } = await signup("user_k");
+      await db.update(users).set({ phone: TYPED }).where(eq(users.id, user.id));
+
+      expect((await resolve(TYPED)).status).toBe(200);
+      expect(getUserListMock).not.toHaveBeenCalled();
+    });
+
+    it("POST returns the typed-number account instead of provisioning a second one", async () => {
+      const { user } = await signup("user_p");
+      clerkUsers([{ id: "user_p", phone: TYPED }]);
+
+      const res = await request(app).post("/internal/phone-accounts").set("x-api-key", API_KEY).send({ phone: TYPED });
+
+      expect(res.status).toBe(200);
+      expect(res.body.created).toBe(false);
+      expect(res.body.userId).toBe(user.id);
+      expect(createUserMock).not.toHaveBeenCalled();
+      expect(billingCalls()).toHaveLength(0);
     });
   });
 });
