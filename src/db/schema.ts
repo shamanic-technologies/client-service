@@ -79,6 +79,12 @@ export const users = pgTable(
      * number must never decide whose account an inbound message lands in.
      */
     contactPhone: text("contact_phone"),
+    /**
+     * The number the person typed on onboarding (Clerk `publicMetadata.phone`),
+     * mirrored by `src/lib/onboarding-phone.ts`. Not unique: it resolves a
+     * WhatsApp sender only when exactly one user holds it and no `phone` does.
+     */
+    onboardingPhone: text("onboarding_phone"),
     orgId: uuid("org_id").references(() => orgs.id),
     metadata: jsonb("metadata"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -90,6 +96,7 @@ export const users = pgTable(
     // NULLs as distinct, so the many existing users with NULL phone are
     // unaffected; uniqueness is enforced only across non-null phone values.
     uniqueIndex("idx_users_phone").on(table.phone),
+    index("idx_users_onboarding_phone").on(table.onboardingPhone),
   ]
 );
 

@@ -15,6 +15,7 @@ import {
 } from "../lib/clerk-client.js";
 import { ensureBillingWelcome, BillingServiceError } from "../lib/billing-service-client.js";
 import { errorReason } from "../lib/pg-error.js";
+import { refreshOnboardingPhones } from "../lib/onboarding-phone.js";
 
 const router = Router();
 
@@ -26,32 +27,67 @@ interface PhoneAccountIdentity {
   clerkUserId: string;
 }
 
+const identityColumns = {
+  orgId: orgs.id,
+  userId: users.id,
+  clerkOrgId: orgs.externalId,
+  clerkUserId: users.externalId,
+};
+
+type IdentityRow = { orgId: string; userId: string; clerkOrgId: string | null; clerkUserId: string | null };
+
+function toIdentity(row: IdentityRow, phone: string): PhoneAccountIdentity {
+  return {
+    orgId: row.orgId,
+    userId: row.userId,
+    phone,
+    clerkOrgId: row.clerkOrgId ?? "",
+    clerkUserId: row.clerkUserId ?? "",
+  };
+}
+
 /**
  * Resolve a phone number to its existing account identity, joining the user's
- * org for the Clerk ids. Returns null when no account exists for the phone.
+ * org for the Clerk ids. Rule (src/lib/onboarding-phone.ts): a `users.phone`
+ * holder wins; else the ONE user who typed it on onboarding; two or more = null.
+ * Reads our rows only; returns null when no account owns the phone.
  */
 async function lookupByPhone(phone: string): Promise<PhoneAccountIdentity | null> {
-  const [row] = await db
-    .select({
-      orgId: orgs.id,
-      userId: users.id,
-      phone: users.phone,
-      clerkOrgId: orgs.externalId,
-      clerkUserId: users.externalId,
-    })
+  const [linked] = await db
+    .select(identityColumns)
     .from(users)
     .innerJoin(orgs, eq(users.orgId, orgs.id))
     .where(eq(users.phone, phone))
     .limit(1);
+  if (linked) return toIdentity(linked, phone);
 
-  if (!row) return null;
-  return {
-    orgId: row.orgId,
-    userId: row.userId,
-    phone: row.phone ?? phone,
-    clerkOrgId: row.clerkOrgId ?? "",
-    clerkUserId: row.clerkUserId ?? "",
-  };
+  const typed = await db
+    .select(identityColumns)
+    .from(users)
+    .innerJoin(orgs, eq(users.orgId, orgs.id))
+    .where(eq(users.onboardingPhone, phone))
+    .limit(2);
+  if (typed.length === 1) return toIdentity(typed[0], phone);
+  if (typed.length > 1) {
+    console.warn(
+      `[client-service] phone typed on onboarding by several users, resolving to nobody: ${typed
+        .map((r) => r.userId)
+        .join(", ")}`,
+    );
+  }
+  return null;
+}
+
+/**
+ * lookupByPhone, and on a miss re-read the onboarding numbers from Clerk once
+ * and look again: someone who typed their number a minute ago resolves on their
+ * first message. Clerk unreachable throws ClerkServiceError (a 502, never "unknown").
+ */
+async function resolveByPhone(phone: string): Promise<PhoneAccountIdentity | null> {
+  const known = await lookupByPhone(phone);
+  if (known) return known;
+  await refreshOnboardingPhones();
+  return lookupByPhone(phone);
 }
 
 /** Thrown inside the reservation tx when another concurrent call already claimed the phone. */
@@ -67,7 +103,8 @@ class PhoneRaceLostError extends Error {}
  *      as the channel's mapping key.
  *   3. billing-service welcome path (welcome credit + Stripe customer) — reused,
  *      never granted here.
- * A known phone short-circuits at step 0 (no Clerk/billing calls).
+ * A known phone short-circuits at step 0 (no Clerk/billing calls); a phone typed
+ * on onboarding by exactly one user is known too (resolveByPhone).
  *
  * Concurrency: the DB unique index on users.phone is the arbiter. If two first
  * messages race, the loser's just-created Clerk org/user are torn down and the
@@ -84,7 +121,7 @@ router.post("/internal/phone-accounts", requireApiKey, async (req, res) => {
 
   try {
     // 0. Fast path: phone already has an account. No external calls.
-    const existing = await lookupByPhone(phone);
+    const existing = await resolveByPhone(phone);
     if (existing) {
       return res.status(200).json({ ...existing, created: false });
     }
@@ -169,12 +206,15 @@ router.get("/internal/phone-accounts", requireApiKey, async (req, res) => {
   }
 
   try {
-    const identity = await lookupByPhone(parsed.data.phone);
+    const identity = await resolveByPhone(parsed.data.phone);
     if (!identity) {
       return res.status(404).json({ error: "No account exists for this phone number" });
     }
     return res.status(200).json({ ...identity, created: false });
   } catch (error) {
+    if (error instanceof ClerkServiceError) {
+      return res.status(502).json({ error: `identity_provider_unavailable: ${error.body}` });
+    }
     console.error("[client-service] Phone-account resolve error:", error);
     return res.status(500).json({ error: "Failed to resolve phone account" });
   }

@@ -9,6 +9,7 @@ import { dirname, join } from "path";
 import { migrate } from "drizzle-orm/postgres-js/migrator";
 import { db } from "./db/index.js";
 import { registerEmailTemplates } from "./lib/transactional-email-client.js";
+import { syncOnboardingPhones } from "./lib/onboarding-phone.js";
 import healthRoutes from "./routes/health.js";
 import resolveRoutes from "./routes/resolve.js";
 import phoneAccountsRoutes from "./routes/phone-accounts.js";
@@ -108,6 +109,11 @@ if (process.env.NODE_ENV !== "test") {
         console.log(`Client service running on port ${PORT}`);
         // After listen: an upsert of our own email templates, never awaited by boot.
         void registerEmailTemplates();
+        // After listen: mirror onboarding phone numbers from Clerk (backfill +
+        // catch-up after downtime). Resolution misses re-sweep on their own.
+        void syncOnboardingPhones()
+          .then((r) => console.log("[client-service] onboarding phones synced at boot:", JSON.stringify(r)))
+          .catch((err) => console.error("[client-service] onboarding phone sync at boot failed:", err));
       });
     })
     .catch((err) => {
