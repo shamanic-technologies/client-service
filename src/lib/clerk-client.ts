@@ -262,6 +262,33 @@ export async function listClerkOrganizationMemberIds(clerkOrgId: string): Promis
   }
 }
 
+export interface ClerkUserOnboardingPhone {
+  clerkUserId: string;
+  /** `publicMetadata.phone` as the dashboard's onboarding wrote it, untouched. */
+  phone: unknown;
+}
+
+/**
+ * Every Clerk user with the phone they typed on onboarding (`publicMetadata.phone`,
+ * written by the dashboard's `/api/onboarding/phone`), read live and COMPLETE:
+ * the caller clears numbers that are no longer there, so a partial list must
+ * never be returned. Any failure throws ClerkServiceError (fail loud).
+ */
+export async function listClerkUserOnboardingPhones(): Promise<ClerkUserOnboardingPhone[]> {
+  const clerk = await getClerkClient({ method: "GET", path: "/internal/phone-accounts" });
+  const out: ClerkUserOnboardingPhone[] = [];
+  try {
+    for (let offset = 0; ; offset += CLERK_PAGE_LIMIT) {
+      const page = await clerk.users.getUserList({ limit: CLERK_PAGE_LIMIT, offset, orderBy: "created_at" });
+      for (const u of page.data) out.push({ clerkUserId: u.id, phone: u.publicMetadata?.phone });
+      if (page.data.length < CLERK_PAGE_LIMIT || offset + page.data.length >= page.totalCount) break;
+    }
+    return out;
+  } catch (err: unknown) {
+    throw new ClerkServiceError(errorStatus(err), errorBody(err));
+  }
+}
+
 /** Clerk's organization-list filter takes ids in the query string; keep URLs short. */
 const CLERK_ORG_ID_CHUNK = 100;
 

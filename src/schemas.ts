@@ -1316,7 +1316,7 @@ registry.registerPath({
   path: "/internal/phone-accounts",
   summary: "Resolve a KNOWN phone number to its account identity (never creates)",
   description:
-    "Read-only lookup: resolves a phone number to its existing org/user identity. 404 when no account exists for the phone (use POST to provision).",
+    "Read-only lookup: resolves a phone number to its existing org/user identity. A number linked by WhatsApp sign-in (or a phone-origin account) wins; else the one user who typed it on onboarding; a number typed by two or more users resolves to nobody. 404 when no account owns the phone (use POST to provision).",
   security: [{ ApiKeyAuth: [] }],
   request: {
     query: ResolvePhoneAccountQuerySchema,
@@ -1336,6 +1336,10 @@ registry.registerPath({
     },
     404: {
       description: "No account exists for the phone number",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+    502: {
+      description: "identity_provider_unavailable: the onboarding numbers could not be read from Clerk on a miss (never reported as unknown)",
       content: { "application/json": { schema: ErrorResponseSchema } },
     },
     500: {
