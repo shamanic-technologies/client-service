@@ -63,6 +63,7 @@ describe("org owner Telegram", () => {
     expect(res.body).toEqual({ outcome: "sent", target: "platform_owner_chat", telegramMessageId: 42 });
     expect(calls[0].url).toBe("https://api.telegram.org/botbot-token/sendMessage");
     expect(calls[0].body).toMatchObject({ chat_id: "999", text: "Your post is live: https://x.com/a/status/1" });
+    expect((await request(app).get(`/internal/orgs/${orgId}/owner-telegram`).set("x-api-key", API_KEY)).body).toMatchObject({ reachable: true, target: "platform_owner_chat", linkedByUserId: null });
   });
 
   it("self-serve link: code → bot /start → the owner's chat gets the lines", async () => {
@@ -94,6 +95,7 @@ describe("org owner Telegram", () => {
 
     const status = await request(app).get(`/internal/orgs/${orgId}/owner-telegram`).set("x-api-key", API_KEY);
     expect(status.body).toMatchObject({ reachable: true, target: "linked_chat" });
+    expect(typeof status.body.linkedByUserId).toBe("string");
     const unlink = await request(app).delete(`/internal/orgs/${orgId}/owner-telegram`).set("x-api-key", API_KEY);
     expect(unlink.body).toEqual({ unlinked: true });
     expect((await send("again")).body.outcome).toBe("not_reachable");
