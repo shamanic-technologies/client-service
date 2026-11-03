@@ -1,5 +1,4 @@
 import { Router } from "express";
-import { eq } from "drizzle-orm";
 import { db } from "../db/index.js";
 import { users, orgs } from "../db/schema.js";
 import { requireApiKey } from "../middleware/auth.js";
@@ -15,80 +14,9 @@ import {
 } from "../lib/clerk-client.js";
 import { ensureBillingWelcome, BillingServiceError } from "../lib/billing-service-client.js";
 import { errorReason } from "../lib/pg-error.js";
-import { refreshOnboardingPhones } from "../lib/onboarding-phone.js";
+import { lookupByPhone, resolveByPhone } from "../lib/phone-identity.js";
 
 const router = Router();
-
-interface PhoneAccountIdentity {
-  orgId: string;
-  userId: string;
-  phone: string;
-  clerkOrgId: string;
-  clerkUserId: string;
-}
-
-const identityColumns = {
-  orgId: orgs.id,
-  userId: users.id,
-  clerkOrgId: orgs.externalId,
-  clerkUserId: users.externalId,
-};
-
-type IdentityRow = { orgId: string; userId: string; clerkOrgId: string | null; clerkUserId: string | null };
-
-function toIdentity(row: IdentityRow, phone: string): PhoneAccountIdentity {
-  return {
-    orgId: row.orgId,
-    userId: row.userId,
-    phone,
-    clerkOrgId: row.clerkOrgId ?? "",
-    clerkUserId: row.clerkUserId ?? "",
-  };
-}
-
-/**
- * Resolve a phone number to its existing account identity, joining the user's
- * org for the Clerk ids. Rule (src/lib/onboarding-phone.ts): a `users.phone`
- * holder wins; else the ONE user who typed it on onboarding; two or more = null.
- * Reads our rows only; returns null when no account owns the phone.
- */
-async function lookupByPhone(phone: string): Promise<PhoneAccountIdentity | null> {
-  const [linked] = await db
-    .select(identityColumns)
-    .from(users)
-    .innerJoin(orgs, eq(users.orgId, orgs.id))
-    .where(eq(users.phone, phone))
-    .limit(1);
-  if (linked) return toIdentity(linked, phone);
-
-  const typed = await db
-    .select(identityColumns)
-    .from(users)
-    .innerJoin(orgs, eq(users.orgId, orgs.id))
-    .where(eq(users.onboardingPhone, phone))
-    .limit(2);
-  if (typed.length === 1) return toIdentity(typed[0], phone);
-  if (typed.length > 1) {
-    console.warn(
-      `[client-service] phone typed on onboarding by several users, resolving to nobody: ${typed
-        .map((r) => r.userId)
-        .join(", ")}`,
-    );
-  }
-  return null;
-}
-
-/**
- * lookupByPhone, and on a miss re-read the onboarding numbers from Clerk once
- * and look again: someone who typed their number a minute ago resolves on their
- * first message. Clerk unreachable throws ClerkServiceError (a 502, never "unknown").
- */
-async function resolveByPhone(phone: string): Promise<PhoneAccountIdentity | null> {
-  const known = await lookupByPhone(phone);
-  if (known) return known;
-  await refreshOnboardingPhones();
-  return lookupByPhone(phone);
-}
 
 /** Thrown inside the reservation tx when another concurrent call already claimed the phone. */
 class PhoneRaceLostError extends Error {}

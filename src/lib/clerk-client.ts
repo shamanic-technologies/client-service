@@ -478,13 +478,16 @@ export const STAFF_ADDED_SOURCE = "staff_added";
  * (skipPasswordRequirement): the person signs in later by email code and is
  * this same user. Fail loud: any Clerk failure throws ClerkServiceError.
  */
-export async function createClerkUserForEmail(email: string): Promise<string> {
-  const clerk = await getClerkClient(ORG_MEMBERS_CALLER);
+export async function createClerkUserForEmail(
+  email: string,
+  opts: { caller?: CallerInfo; signupSource?: string } = {},
+): Promise<string> {
+  const clerk = await getClerkClient(opts.caller ?? ORG_MEMBERS_CALLER);
   try {
     const user = await clerk.users.createUser({
       emailAddress: [email],
       skipPasswordRequirement: true,
-      privateMetadata: { signupSource: STAFF_ADDED_SOURCE },
+      privateMetadata: { signupSource: opts.signupSource ?? STAFF_ADDED_SOURCE },
     });
     return user.id;
   } catch (err: unknown) {
