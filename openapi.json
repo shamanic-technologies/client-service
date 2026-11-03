@@ -2337,6 +2337,12 @@
             "type": "string",
             "format": "date-time",
             "description": "Present when reachable."
+          },
+          "linkedByUserId": {
+            "type": "string",
+            "nullable": true,
+            "format": "uuid",
+            "description": "Present when reachable: internal uuid of the member who linked the chat (null for the platform owner's chat). The org's Copilot writes to the org in Telegram as this member."
           }
         },
         "required": [

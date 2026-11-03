@@ -103,13 +103,13 @@ export async function sendToOrgOwner(orgId: string, text: string): Promise<Owner
 
 export type OwnerTelegramStatus =
   | { reachable: false }
-  | { reachable: true; target: OwnerTelegramTarget; linkedAt: string };
+  | { reachable: true; target: OwnerTelegramTarget; linkedAt: string; linkedByUserId: string | null };
 
 export async function getOrgOwnerTelegram(orgId: string): Promise<OwnerTelegramStatus> {
   await requireOrg(orgId);
   const [row] = await db.select().from(orgOwnerTelegram).where(eq(orgOwnerTelegram.orgId, orgId)).limit(1);
   if (!row) return { reachable: false };
-  return { reachable: true, target: row.target as OwnerTelegramTarget, linkedAt: row.linkedAt.toISOString() };
+  return { reachable: true, target: row.target as OwnerTelegramTarget, linkedAt: row.linkedAt.toISOString(), linkedByUserId: row.linkedByUserId };
 }
 
 export async function unlinkOrgOwnerTelegram(orgId: string): Promise<{ unlinked: boolean }> {

@@ -2188,6 +2188,9 @@ const OrgOwnerTelegramStatusSchema = z
     reachable: z.boolean(),
     target: OwnerTelegramTargetSchema.optional().openapi({ description: "Present when reachable." }),
     linkedAt: z.string().datetime().optional().openapi({ description: "Present when reachable." }),
+    linkedByUserId: z.string().uuid().nullable().optional().openapi({
+      description: "Present when reachable: internal uuid of the member who linked the chat (null for the platform owner's chat). The org's Copilot writes to the org in Telegram as this member.",
+    }),
   })
   .openapi("OrgOwnerTelegramStatus");
 
