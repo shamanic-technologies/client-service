@@ -1,4 +1,4 @@
-import { createHash, randomInt, randomUUID, timingSafeEqual } from "node:crypto";
+import { createHash, randomBytes, randomInt, randomUUID, timingSafeEqual } from "node:crypto";
 import { and, desc, eq, isNull, ne, sql } from "drizzle-orm";
 import { db } from "../db/index.js";
 import { agentSignupCodes, orgs, users, type AgentSignupCode } from "../db/schema.js";
@@ -25,14 +25,27 @@ import { notifyStaffSignup } from "./transactional-email-client.js";
  * free riders. Everything needs to be paid upfront.").
  *
  * Two steps:
- *  1. start: a 6-digit code is emailed to the address; the phone (urgent
- *     contact, format-checked only) is kept with it. Nothing exists yet.
- *  2. complete: the code comes back, which proves the email. The email's
- *     account is returned, created on first sight.
+ *  1. start: one email to the address carries a 6-digit code AND an approval
+ *     link; the agent gets a poll token. The phone (optional, unverified urgent
+ *     contact) is kept with it. Nothing exists yet.
+ *  2. complete: the email is proven EITHER by the code coming back, OR by the
+ *     poll token once the inbox owner clicked the link. The email's account is
+ *     returned, created on first sight.
+ *
+ * Why two proofs (CLIENT-FRICTION-API-1103): an agent with no inbox access
+ * waits on a human, and a human relaying a 6-digit code often misses its
+ * 15 minutes. A 6-digit code is guessable, so it MUST stay short-lived and
+ * attempt-limited (NIST SP 800-63B 5.1.3: out-of-band secrets ~10 min; OWASP
+ * MFA cheat sheet). The link + poll token is the OAuth 2.0 Device
+ * Authorization Grant shape (RFC 8628): the human approves from a link while
+ * the agent polls with a secret only it holds. Both secrets are 256-bit, so a
+ * longer lifetime (APPROVAL_TTL_HOURS) does not make guessing possible; the
+ * human's click is a POST on a confirm page (a GET never approves: mail
+ * scanners prefetch links).
  *
  * No cap per email or caller (owner: block nothing). What bounds guessing is
  * per code: it expires, it allows MAX_ATTEMPTS wrong guesses, and each new
- * request kills the earlier codes for that email.
+ * request kills the earlier codes AND links for that email.
  *
  * ZERO free money: billing-service's ordinary welcome path is never called. A
  * created org is marked `agent_api` at billing before anything else can touch
@@ -41,10 +54,29 @@ import { notifyStaffSignup } from "./transactional-email-client.js";
 
 export const CODE_TTL_MINUTES = 15;
 export const MAX_ATTEMPTS = 5;
+/** How long the approval link (and the poll token's wait for it) lives. */
+export const APPROVAL_TTL_HOURS = 24;
+/** RFC 8628 3.2 default polling interval. Advice only: nothing is throttled. */
+export const POLL_INTERVAL_SECONDS = 5;
+const DEFAULT_PUBLIC_API_URL = "https://api.distribute.you";
 export const AGENT_CHANNEL = "agent_api";
 
 function hashCode(id: string, code: string): string {
   return createHash("sha256").update(`${id}:${code}`).digest("hex");
+}
+
+function hashToken(token: string): string {
+  return createHash("sha256").update(token).digest("hex");
+}
+
+function newToken(): string {
+  return randomBytes(32).toString("base64url");
+}
+
+/** The public page (api-service gateway) the human opens from the email. */
+export function approveUrlFor(token: string): string {
+  const base = (process.env.PUBLIC_API_URL || DEFAULT_PUBLIC_API_URL).replace(/\/+$/, "");
+  return `${base}/v1/agent-signups/approve?token=${encodeURIComponent(token)}`;
 }
 
 function newCode(): string {
@@ -58,7 +90,10 @@ export class AgentSignupError extends Error {
       | "no_pending_code"
       | "code_invalid"
       | "code_expired"
-      | "too_many_attempts",
+      | "too_many_attempts"
+      | "authorization_pending"
+      | "approval_expired"
+      | "poll_token_unknown",
     message: string,
     public readonly attemptsLeft?: number,
   ) {
@@ -67,29 +102,60 @@ export class AgentSignupError extends Error {
   }
 }
 
+export interface SignupEmail {
+  email: string;
+  code: string;
+  ttlMinutes: number;
+  approveUrl: string;
+  approvalTtlHours: number;
+}
+
+export interface StartedSignup {
+  email: string;
+  expiresAt: Date;
+  codeTtlMinutes: number;
+  maxAttempts: number;
+  pollToken: string;
+  approvalExpiresAt: Date;
+  pollIntervalSeconds: number;
+}
+
 /**
- * Step 1. `send` delivers the code; it is injected so the delivery path is the
- * caller's (and a test's) concern. A code that was not delivered is never
- * usable, and earlier codes stay valid until a new one is actually delivered.
+ * Step 1. `send` delivers the email; it is injected so the delivery path is the
+ * caller's (and a test's) concern. A code or link that was not delivered is
+ * never usable, and earlier ones stay valid until a new one is delivered.
  */
 export async function startAgentSignup(
-  input: { email: string; phone: string },
-  send: (email: string, code: string, ttlMinutes: number) => Promise<void>,
-): Promise<{ email: string; expiresAt: Date; codeTtlMinutes: number; maxAttempts: number }> {
+  input: { email: string; phone?: string },
+  send: (mail: SignupEmail) => Promise<void>,
+): Promise<StartedSignup> {
   const id = randomUUID();
   const code = newCode();
+  const pollToken = newToken();
+  const approvalToken = newToken();
   const expiresAt = new Date(Date.now() + CODE_TTL_MINUTES * 60_000);
+  const approvalExpiresAt = new Date(Date.now() + APPROVAL_TTL_HOURS * 3_600_000);
+  const phone = input.phone ?? null;
 
   await db.insert(agentSignupCodes).values({
     id,
     email: input.email,
-    phone: input.phone,
+    phone,
     codeHash: hashCode(id, code),
     expiresAt,
+    pollTokenHash: hashToken(pollToken),
+    approvalTokenHash: hashToken(approvalToken),
+    approvalExpiresAt,
   });
 
   try {
-    await send(input.email, code, CODE_TTL_MINUTES);
+    await send({
+      email: input.email,
+      code,
+      ttlMinutes: CODE_TTL_MINUTES,
+      approveUrl: approveUrlFor(approvalToken),
+      approvalTtlHours: APPROVAL_TTL_HOURS,
+    });
   } catch (err) {
     await db.delete(agentSignupCodes).where(eq(agentSignupCodes.id, id));
     throw err;
@@ -107,9 +173,99 @@ export async function startAgentSignup(
       ),
     );
 
-  notifyOwner(input.email, `📧 ${input.email} · asked for an API signup code (AI agent) · ${input.phone}`);
+  notifyOwner(input.email, `📧 ${input.email} · asked for an API signup code (AI agent)${phoneSuffix(phone)}`);
 
-  return { email: input.email, expiresAt, codeTtlMinutes: CODE_TTL_MINUTES, maxAttempts: MAX_ATTEMPTS };
+  return {
+    email: input.email,
+    expiresAt,
+    codeTtlMinutes: CODE_TTL_MINUTES,
+    maxAttempts: MAX_ATTEMPTS,
+    pollToken,
+    approvalExpiresAt,
+    pollIntervalSeconds: POLL_INTERVAL_SECONDS,
+  };
+}
+
+function phoneSuffix(phone: string | null): string {
+  return phone ? ` · ${phone} (unverified)` : " · no phone";
+}
+
+/** Where an approval link stands, as the human's page shows it. */
+export type ApprovalState = "ready" | "approved" | "expired" | "superseded" | "unknown";
+
+export interface ApprovalView {
+  state: ApprovalState;
+  email: string | null;
+  requestedAt: Date | null;
+}
+
+async function rowByApprovalToken(token: string): Promise<AgentSignupCode | null> {
+  const [row] = await db
+    .select()
+    .from(agentSignupCodes)
+    .where(eq(agentSignupCodes.approvalTokenHash, hashToken(token)))
+    .limit(1);
+  return row ?? null;
+}
+
+function approvalStateOf(row: AgentSignupCode): ApprovalState {
+  if (row.approvedAt) return "approved";
+  if (row.supersededAt) return "superseded";
+  if (!row.approvalExpiresAt || row.approvalExpiresAt.getTime() <= Date.now()) return "expired";
+  return "ready";
+}
+
+/** Read-only: what the confirm page shows. A GET never approves. */
+export async function readApproval(token: string): Promise<ApprovalView> {
+  const row = await rowByApprovalToken(token);
+  if (!row) return { state: "unknown", email: null, requestedAt: null };
+  return { state: approvalStateOf(row), email: row.email, requestedAt: row.createdAt };
+}
+
+/**
+ * The inbox owner approves (the confirm page's POST). Idempotent: an approved
+ * link stays approved. Only a live, latest request can be approved.
+ */
+export async function approveAgentSignup(token: string): Promise<ApprovalView> {
+  const row = await rowByApprovalToken(token);
+  if (!row) return { state: "unknown", email: null, requestedAt: null };
+  if (approvalStateOf(row) === "ready") {
+    await db
+      .update(agentSignupCodes)
+      .set({ approvedAt: sql`COALESCE(${agentSignupCodes.approvedAt}, now())` })
+      .where(and(eq(agentSignupCodes.id, row.id), isNull(agentSignupCodes.supersededAt)));
+  }
+  const [after] = await db.select().from(agentSignupCodes).where(eq(agentSignupCodes.id, row.id));
+  return { state: approvalStateOf(after), email: after.email, requestedAt: after.createdAt };
+}
+
+/**
+ * The agent's poll (RFC 8628 3.4/3.5): the poll token proves it is the agent
+ * that started this request; the approval proves the email. Until the human
+ * acts: `authorization_pending`. An approved request redeems again until its
+ * approval window ends, returning the same account.
+ */
+async function verifyPollToken(email: string, pollToken: string): Promise<AgentSignupCode> {
+  const [row] = await db
+    .select()
+    .from(agentSignupCodes)
+    .where(eq(agentSignupCodes.pollTokenHash, hashToken(pollToken)))
+    .limit(1);
+  if (!row || row.email !== email) {
+    throw new AgentSignupError("poll_token_unknown", "This poll token does not match a signup request for this email.");
+  }
+  const expired = !row.approvalExpiresAt || row.approvalExpiresAt.getTime() <= Date.now();
+  if (expired) {
+    throw new AgentSignupError("approval_expired", "This request expired before it was approved. Start again.");
+  }
+  if (row.approvedAt) return row;
+  if (row.supersededAt) {
+    throw new AgentSignupError("no_pending_code", "A newer request replaced this one. Poll with the newest poll token.");
+  }
+  throw new AgentSignupError(
+    "authorization_pending",
+    "Waiting for the inbox owner to click the link in the email (or send the 6-digit code instead). Poll again shortly.",
+  );
 }
 
 /** Check `code` against the live code of `email`. Counts a wrong guess. */
@@ -174,10 +330,14 @@ const inFlight = new Map<string, Promise<AgentAccount>>();
  */
 export async function completeAgentSignup(input: {
   email: string;
-  code: string;
+  code?: string;
+  pollToken?: string;
   whatsappPhone?: string;
 }): Promise<AgentAccount & Partial<WhatsappPhoneBinding>> {
-  const row = await verifyCode(input.email, input.code);
+  const row =
+    input.pollToken !== undefined
+      ? await verifyPollToken(input.email, input.pollToken)
+      : await verifyCode(input.email, input.code!);
 
   const pending = inFlight.get(input.email);
   if (pending) return pending;
@@ -232,13 +392,13 @@ async function bindOnce(userId: string, phone: string): Promise<WhatsappPhoneBin
   });
 }
 
-async function provision(email: string, phone: string): Promise<AgentAccount> {
+async function provision(email: string, phone: string | null): Promise<AgentAccount> {
   const existing = await findClerkUserByEmail(email);
   if (existing) return returnExisting(email, phone, existing.clerkUserId, existing.signupSource === AGENT_SIGNUP_SOURCE);
   return createAccount(email, phone);
 }
 
-async function createAccount(email: string, phone: string): Promise<AgentAccount> {
+async function createAccount(email: string, phone: string | null): Promise<AgentAccount> {
   const orgName = orgNameForEmail(email);
   const clerk = await createClerkEmailAccount(email, orgName);
 
@@ -272,7 +432,7 @@ async function createAccount(email: string, phone: string): Promise<AgentAccount
   await markAgentApiSignup(local.orgId);
 
   notifyStaffSignup({ orgId: local.orgId, email });
-  notifyOwner(email, `🆕 ${email} · signed up through the API (AI agent) · ${phone}`);
+  notifyOwner(email, `🆕 ${email} · signed up through the API (AI agent)${phoneSuffix(phone)}`);
 
   return {
     orgId: local.orgId,
@@ -293,7 +453,7 @@ async function createAccount(email: string, phone: string): Promise<AgentAccount
  */
 async function returnExisting(
   email: string,
-  phone: string,
+  phone: string | null,
   clerkUserId: string,
   agentBorn: boolean,
 ): Promise<AgentAccount> {
@@ -313,7 +473,14 @@ async function returnExisting(
     resolved = { orgId: identity.org.id, userId: identity.user.id, clerkOrgId: target.clerkOrgId };
   }
 
-  await db.update(users).set({ contactPhone: phone, updatedAt: new Date() }).where(eq(users.id, resolved.userId));
+  // No phone given = keep whatever contact the user already has.
+  let contactPhone = phone;
+  if (phone) {
+    await db.update(users).set({ contactPhone: phone, updatedAt: new Date() }).where(eq(users.id, resolved.userId));
+  } else {
+    const [u] = await db.select({ contactPhone: users.contactPhone }).from(users).where(eq(users.id, resolved.userId));
+    contactPhone = u.contactPhone;
+  }
 
   // An agent-born account (marked on the Clerk user at creation, or by its first
   // touch) is kept off free money on every return, so a provision that stopped
@@ -331,7 +498,7 @@ async function returnExisting(
     orgId: resolved.orgId,
     userId: resolved.userId,
     email,
-    contactPhone: phone,
+    contactPhone,
     clerkOrgId: resolved.clerkOrgId,
     clerkUserId,
     created: false,
