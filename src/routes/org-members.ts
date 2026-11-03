@@ -1,8 +1,14 @@
 import { Router } from "express";
 import { requireApiKey } from "../middleware/auth.js";
-import { OrgMemberAddBodySchema, MemberInvitationsOrgParamsSchema, OrgMemberParamsSchema } from "../schemas.js";
+import {
+  OrgMemberAddBodySchema,
+  OrgPhoneMemberAddBodySchema,
+  MemberInvitationsOrgParamsSchema,
+  OrgMemberParamsSchema,
+} from "../schemas.js";
 import { addOrgMember, removeOrgMember } from "../lib/org-members.js";
 import { OrgInvitationError } from "../lib/org-member-invitations.js";
+import { addOrgPhoneMember, PhoneMemberError } from "../lib/org-phone-members.js";
 import { ClerkServiceError, clerkErrorMessage } from "../lib/clerk-client.js";
 import { errorReason } from "../lib/pg-error.js";
 
@@ -45,6 +51,43 @@ router.post("/internal/orgs/:orgId/members", requireApiKey, async (req, res) => 
     }
     console.error("[client-service] add org member failed:", error);
     return res.status(500).json({ error: "internal_error", message: error instanceof Error ? errorReason(error) : "add member failed" });
+  }
+});
+
+/**
+ * Add a person by PHONE NUMBER only (src/lib/org-phone-members.ts): the number
+ * resolves to this org on their next WhatsApp/Telegram message. The gateway
+ * gates who may call it. A number that answers for another account is a 409.
+ */
+router.post("/internal/orgs/:orgId/phone-members", requireApiKey, async (req, res) => {
+  const params = MemberInvitationsOrgParamsSchema.safeParse(req.params);
+  const body = OrgPhoneMemberAddBodySchema.safeParse(req.body);
+  if (!params.success || !body.success) {
+    const issues = [...(params.error?.issues ?? []), ...(body.error?.issues ?? [])];
+    return res.status(400).json({
+      error: "invalid_request",
+      message: issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; "),
+    });
+  }
+
+  try {
+    const added = await addOrgPhoneMember({ orgId: params.data.orgId, phone: body.data.phone });
+    return res.status(added.userCreated || added.membershipCreated ? 201 : 200).json(added);
+  } catch (error) {
+    if (error instanceof PhoneMemberError) {
+      return res.status(409).json({ error: error.code, message: error.message });
+    }
+    if (error instanceof OrgInvitationError && STATUS[error.code]) {
+      return res.status(STATUS[error.code]!).json({ error: error.code, message: error.message });
+    }
+    if (error instanceof ClerkServiceError) {
+      if (error.status >= 400 && error.status < 500) {
+        return res.status(422).json({ error: "member_refused", message: clerkErrorMessage(error.body) });
+      }
+      return res.status(502).json({ error: "identity_provider_failed", message: `Clerk: ${clerkErrorMessage(error.body)}` });
+    }
+    console.error("[client-service] add phone member failed:", error);
+    return res.status(500).json({ error: "internal_error", message: error instanceof Error ? errorReason(error) : "add phone member failed" });
   }
 });
 
