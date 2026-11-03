@@ -299,8 +299,12 @@ export const agentSignupCodes = pgTable(
   {
     id: uuid("id").primaryKey().defaultRandom(),
     email: text("email").notNull(),
-    phone: text("phone").notNull(),
+    phone: text("phone"),
     codeHash: text("code_hash").notNull(),
+    pollTokenHash: text("poll_token_hash"),
+    approvalTokenHash: text("approval_token_hash"),
+    approvalExpiresAt: timestamp("approval_expires_at", { withTimezone: true }),
+    approvedAt: timestamp("approved_at", { withTimezone: true }),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
     attempts: integer("attempts").notNull().default(0),
     supersededAt: timestamp("superseded_at", { withTimezone: true }),
@@ -309,6 +313,8 @@ export const agentSignupCodes = pgTable(
   },
   (table) => [
     index("idx_agent_signup_codes_email").on(table.email, table.createdAt),
+    uniqueIndex("idx_agent_signup_codes_poll_token").on(table.pollTokenHash).where(sql`${table.pollTokenHash} IS NOT NULL`),
+    uniqueIndex("idx_agent_signup_codes_approval_token").on(table.approvalTokenHash).where(sql`${table.approvalTokenHash} IS NOT NULL`),
     check("agent_signup_codes_email_lower", sql`${table.email} = lower(${table.email})`),
     check("agent_signup_codes_attempts_nonneg", sql`${table.attempts} >= 0`),
   ]

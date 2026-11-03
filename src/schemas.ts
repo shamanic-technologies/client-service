@@ -1678,9 +1678,9 @@ const AgentSignupEmail = z
 export const AgentSignupStartBodySchema = z
   .object({
     email: AgentSignupEmail,
-    phone: E164Phone.openapi({
+    phone: E164Phone.optional().openapi({
       description:
-        "Urgent-contact phone (WhatsApp) for the person, E.164. Format-checked only, never verified (owner decision 2026-10-12).",
+        "OPTIONAL urgent-contact phone (WhatsApp) for the person, E.164. Omit it when you do not have the person's real number: never invent one. Format-checked only and NEVER verified, so it is stored as an unverified contact (`contactPhone`), never as the account's channel identity (WhatsApp/Telegram routing reads only a channel-verified number, see `whatsappPhone` on complete). A later signup without a phone keeps the contact already on the account.",
       example: "+33612345678",
     }),
   })
@@ -1692,18 +1692,34 @@ const AgentSignupStartResponseSchema = z
     expiresAt: z.string().openapi({ description: "ISO instant after which this code is refused (`code_expired`)." }),
     codeTtlMinutes: z.number().int(),
     maxAttempts: z.number().int().openapi({ description: "Wrong guesses allowed on this code before it dies (`too_many_attempts`)." }),
+    pollToken: z.string().openapi({
+      description:
+        "For an agent that cannot read the inbox (OAuth 2.0 Device Authorization Grant shape, RFC 8628). The same email carries a link; once the inbox owner clicks it and confirms (any time before `approvalExpiresAt`), POST /internal/agent-signups/complete with `{email, pollToken}` returns the account. Until then it answers 400 `authorization_pending`: wait `pollIntervalSeconds` and poll again. Secret: returned only here, keep it private.",
+    }),
+    approvalExpiresAt: z.string().openapi({ description: "ISO instant after which the link and the poll token are refused (`approval_expired`)." }),
+    pollIntervalSeconds: z.number().int().openapi({ description: "Suggested wait between two polls. Advice only: nothing is throttled." }),
   })
   .openapi("AgentSignupStartResponse");
 
 export const AgentSignupCompleteBodySchema = z
   .object({
     email: AgentSignupEmail,
-    code: z.string().trim().regex(/^\d{6}$/, "code must be the 6 digits from the email"),
+    code: z.string().trim().regex(/^\d{6}$/, "code must be the 6 digits from the email").optional().openapi({
+      description: "The 6 digits from the email (valid 15 minutes). Send this OR `pollToken`, not both.",
+    }),
+    pollToken: z.string().trim().min(20).max(200).optional().openapi({
+      description:
+        "The `pollToken` from start, for an agent that cannot read the inbox: proves the email once its owner clicked the link in the email. Send this OR `code`, not both.",
+    }),
     whatsappPhone: E164Phone.optional().openapi({
       description:
         "OPTIONAL. A WhatsApp number the CHANNEL verified (the message came from it), E.164. Once the code proves the email, this number becomes the account's channel identity: GET /internal/phone-accounts?phone= returns this user and org from now on, and whoever held the number before (an old phone-origin account, another user) stops resolving for it. Same number + same user = no-op. Omit it and the completion behaves exactly as before. Never send the unverified start `phone` here.",
       example: "+33612345678",
     }),
+  })
+  .refine((b) => (b.code === undefined) !== (b.pollToken === undefined), {
+    message: "send exactly one of code or pollToken",
+    path: ["code"],
   })
   .openapi("AgentSignupCompleteBody");
 
@@ -1712,7 +1728,10 @@ const AgentSignupCompleteResponseSchema = z
     orgId: z.string().uuid().openapi({ description: "Internal org uuid (the platform's x-org-id)." }),
     userId: z.string().uuid().openapi({ description: "Internal user uuid (the platform's x-user-id)." }),
     email: z.string(),
-    contactPhone: z.string().nullable().openapi({ description: "The urgent-contact phone now on the user." }),
+    contactPhone: z.string().nullable().openapi({
+      description:
+        "The urgent-contact phone on the user, as typed by the caller: UNVERIFIED (never used to route WhatsApp/Telegram). null when no phone was ever given.",
+    }),
     clerkOrgId: z.string(),
     clerkUserId: z.string(),
     created: z
@@ -1738,7 +1757,7 @@ const AgentSignupErrorSchema = z
   .object({
     error: z.string().openapi({
       description:
-        "Named error: `invalid_request`, `no_pending_code`, `code_invalid`, `code_expired`, `too_many_attempts`, `code_email_failed`, `identity_provider_failed`, `billing_unavailable`.",
+        "Named error: `invalid_request`, `no_pending_code`, `code_invalid`, `code_expired`, `too_many_attempts`, `authorization_pending`, `approval_expired`, `poll_token_unknown`, `code_email_failed`, `identity_provider_failed`, `billing_unavailable`.",
     }),
     message: z.string(),
     attemptsLeft: z.number().int().optional().openapi({ description: "On `code_invalid` only: wrong guesses left on this code." }),
@@ -1748,14 +1767,14 @@ const AgentSignupErrorSchema = z
 registry.registerPath({
   method: "post",
   path: "/internal/agent-signups/start",
-  summary: "AI agent signup, step 1: email a 6-digit one-time code to the person",
+  summary: "AI agent signup, step 1: email a 6-digit code and an approval link to the person",
   description:
-    "Sends a fresh 6-digit code to `email` (platform-paid, no org exists yet) and remembers `phone` for the account. Every call sends a NEW code and kills the earlier ones for that email. No cap per email or per caller (owner: block nothing); each code expires and allows a few wrong guesses. Nothing is created in the identity provider at this step. Staff get a Telegram line.",
+    "Sends `email` one message (platform-paid, no org exists yet) carrying a fresh 6-digit code (15 minutes) AND an approval link (24 hours), and returns a `pollToken` to the caller. Two ways to finish: relay the code to POST /internal/agent-signups/complete `{email, code}`, or, for an agent with no inbox access, poll complete with `{email, pollToken}` until the inbox owner has clicked the link (RFC 8628 device-grant shape: the 6-digit code stays short-lived because it is guessable, NIST SP 800-63B 5.1.3; the link and poll token are 256-bit secrets, so they can wait for a human for hours). `phone` is optional and stored only as an unverified contact. Every call sends a NEW code and link and kills the earlier ones for that email. No cap per email or per caller (owner: block nothing); each code expires and allows a few wrong guesses. Nothing is created in the identity provider at this step. Staff get a Telegram line.",
   security: [{ ApiKeyAuth: [] }],
   request: { body: { content: { "application/json": { schema: AgentSignupStartBodySchema } } } },
   responses: {
     200: { description: "Code sent", content: { "application/json": { schema: AgentSignupStartResponseSchema } } },
-    400: { description: "`invalid_request`: bad email or phone", content: { "application/json": { schema: AgentSignupErrorSchema } } },
+    400: { description: "`invalid_request`: bad email or phone (a phone, when given, must be E.164)", content: { "application/json": { schema: AgentSignupErrorSchema } } },
     401: { description: "Unauthorized", content: { "application/json": { schema: ErrorResponseSchema } } },
     502: {
       description: "`code_email_failed`: the email could not be sent; the code is not usable",
@@ -1767,23 +1786,28 @@ registry.registerPath({
 registry.registerPath({
   method: "post",
   path: "/internal/agent-signups/complete",
-  summary: "AI agent signup, step 2: trade the code for a full account (idempotent per email)",
+  summary: "AI agent signup, step 2: trade the code (or the poll token, once approved) for a full account (idempotent per email)",
   description:
-    "Checks the code and returns the account for that email. A new email gets a full signup-equivalent account: identity-provider user carrying the REAL email (the person can sign in to the dashboard with it, no claim step), its organization, internal uuids, the phone as the user's urgent contact, and a first touch with channel `agent_api` (recordedVia `agent_signup`, readable at GET /internal/orgs/{orgId}/acquisition). NO free money: the org's billing account is created through billing-service's agent-signup marker (PUT /internal/accounts/by-org/{orgId}/agent-api-signup) BEFORE anything else can touch billing for it, so it never gets a welcome credit, advance, match or trial; the ordinary welcome path is never called. An email that already has an account returns it (`created: false`); the code proves ownership, so the caller may mint a new API key for it. A code may be redeemed again within its lifetime and returns the same account.",
+    "Checks the proof of the email, `code` OR `pollToken` (exactly one), and returns the account for that email. A new email gets a full signup-equivalent account: identity-provider user carrying the REAL email (the person can sign in to the dashboard with it, no claim step), its organization, internal uuids, the phone as the user's urgent contact, and a first touch with channel `agent_api` (recordedVia `agent_signup`, readable at GET /internal/orgs/{orgId}/acquisition). NO free money: the org's billing account is created through billing-service's agent-signup marker (PUT /internal/accounts/by-org/{orgId}/agent-api-signup) BEFORE anything else can touch billing for it, so it never gets a welcome credit, advance, match or trial; the ordinary welcome path is never called. An email that already has an account returns it (`created: false`); the code proves ownership, so the caller may mint a new API key for it. A code may be redeemed again within its lifetime and returns the same account; an approved poll token likewise until `approvalExpiresAt`.",
   security: [{ ApiKeyAuth: [] }],
   request: { body: { content: { "application/json": { schema: AgentSignupCompleteBodySchema } } } },
   responses: {
     200: { description: "Account created or returned", content: { "application/json": { schema: AgentSignupCompleteResponseSchema } } },
     400: {
-      description: "`invalid_request` (bad body) or `code_invalid` (wrong code; `attemptsLeft` says how many guesses remain)",
+      description:
+        "`invalid_request` (bad body), `code_invalid` (wrong code; `attemptsLeft` says how many guesses remain), or `authorization_pending` (pollToken: the inbox owner has not clicked the link yet; poll again after `pollIntervalSeconds`)",
       content: { "application/json": { schema: AgentSignupErrorSchema } },
     },
     401: { description: "Unauthorized", content: { "application/json": { schema: ErrorResponseSchema } } },
     404: {
-      description: "`no_pending_code`: no code was ever sent to this email, or a newer one replaced it",
+      description:
+        "`no_pending_code`: no code was ever sent to this email, or a newer request replaced it; `poll_token_unknown`: the poll token matches no request for this email",
       content: { "application/json": { schema: AgentSignupErrorSchema } },
     },
-    410: { description: "`code_expired`: request a new code", content: { "application/json": { schema: AgentSignupErrorSchema } } },
+    410: {
+      description: "`code_expired`: request a new code; `approval_expired`: the link was not clicked in time, start again",
+      content: { "application/json": { schema: AgentSignupErrorSchema } },
+    },
     429: {
       description: "`too_many_attempts`: this code is dead after too many wrong guesses; request a new one",
       content: { "application/json": { schema: AgentSignupErrorSchema } },
@@ -1792,6 +1816,64 @@ registry.registerPath({
       description: "`identity_provider_failed`: Clerk refused or failed (nothing half-made is kept), or `billing_unavailable`: billing-service could not mark the org; retry with the same code",
       content: { "application/json": { schema: AgentSignupErrorSchema } },
     },
+  },
+});
+
+export const AgentSignupApproveBodySchema = z
+  .object({ token: z.string().trim().min(20).max(200).openapi({ description: "The `token` from the approval link." }) })
+  .openapi("AgentSignupApproveBody");
+
+const AgentSignupApprovalSchema = z
+  .object({
+    state: z.enum(["ready", "approved", "expired", "superseded", "unknown"]).openapi({
+      description:
+        "`ready`: waiting for the confirm click; `approved`: the agent can finish (poll complete); `expired`: not clicked in time; `superseded`: a newer request was sent to this email; `unknown`: no such link.",
+    }),
+    email: z.string().nullable(),
+    requestedAt: z.string().nullable(),
+  })
+  .openapi("AgentSignupApproval");
+
+registry.registerPath({
+  method: "get",
+  path: "/internal/agent-signups/approve",
+  summary: "AI agent signup: the confirm page the inbox owner opens from the email (never approves)",
+  description:
+    "The human-facing page behind the email's link (public at the gateway as GET /v1/agent-signups/approve?token=). Shows which email and when, and a Confirm button (a form POST to the same URL). A GET never approves anything: mail scanners prefetch links. Answers text/html by default, JSON when the request sends `Accept: application/json`.",
+  security: [{ ApiKeyAuth: [] }],
+  request: { query: z.object({ token: z.string() }) },
+  responses: {
+    200: {
+      description: "The page (any state, `unknown` included)",
+      content: { "text/html": { schema: z.string() }, "application/json": { schema: AgentSignupApprovalSchema } },
+    },
+    400: { description: "`invalid_request`: no token", content: { "application/json": { schema: AgentSignupErrorSchema } } },
+    401: { description: "Unauthorized", content: { "application/json": { schema: ErrorResponseSchema } } },
+  },
+});
+
+registry.registerPath({
+  method: "post",
+  path: "/internal/agent-signups/approve",
+  summary: "AI agent signup: the inbox owner confirms, the agent's poll token now returns the account",
+  description:
+    "Approves the request named by `token` (form field or JSON body; the query `token` is accepted too, as the page's form posts to its own URL). Idempotent. Only the newest, unexpired request of an email can be approved. Answers text/html for a form post, JSON otherwise.",
+  security: [{ ApiKeyAuth: [] }],
+  request: {
+    body: {
+      content: {
+        "application/x-www-form-urlencoded": { schema: AgentSignupApproveBodySchema },
+        "application/json": { schema: AgentSignupApproveBodySchema },
+      },
+    },
+  },
+  responses: {
+    200: {
+      description: "The resulting state (`approved` on success)",
+      content: { "text/html": { schema: z.string() }, "application/json": { schema: AgentSignupApprovalSchema } },
+    },
+    400: { description: "`invalid_request`: no token", content: { "application/json": { schema: AgentSignupErrorSchema } } },
+    401: { description: "Unauthorized", content: { "application/json": { schema: ErrorResponseSchema } } },
   },
 });
 

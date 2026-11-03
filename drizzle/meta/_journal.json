@@ -183,6 +183,13 @@
       "when": 1780588800009,
       "tag": "0025_users_onboarding_phone",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1780588800010,
+      "tag": "0026_agent_signup_approval",
+      "breakpoints": true
     }
   ]
 }

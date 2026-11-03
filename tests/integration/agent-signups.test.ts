@@ -114,13 +114,24 @@ describe("agent-signups routes", () => {
       expect(body).toEqual({
         eventType: "agent_signup_code",
         recipientEmail: EMAIL,
-        metadata: { code: expect.stringMatching(/^\d{6}$/), expiresInMinutes: 15 },
+        metadata: {
+          code: expect.stringMatching(/^\d{6}$/),
+          expiresInMinutes: 15,
+          approveUrl: expect.stringMatching(/^https:\/\/api\.distribute\.you\/v1\/agent-signups\/approve\?token=[A-Za-z0-9_-]{43}$/),
+          approvalTtlHours: 24,
+        },
       });
+      expect(res.body.pollToken).toMatch(/^[A-Za-z0-9_-]{43}$/);
+      expect(res.body.pollIntervalSeconds).toBe(5);
+      expect(Date.parse(res.body.approvalExpiresAt) - Date.now()).toBeGreaterThan(23 * 3_600_000);
 
       const [row] = await db.select().from(agentSignupCodes);
       expect(row.email).toBe(EMAIL);
       expect(row.phone).toBe(PHONE);
       expect(row.codeHash).not.toContain(body.metadata.code);
+      // Both secrets are stored hashed only.
+      expect(row.pollTokenHash).not.toBe(res.body.pollToken);
+      expect(row.approvalTokenHash).not.toContain(new URL(body.metadata.approveUrl).searchParams.get("token"));
 
       // Nothing exists in the identity provider at this step.
       expect(clerk.createUser).not.toHaveBeenCalled();
@@ -475,6 +486,160 @@ describe("agent-signups routes", () => {
       expect(res.status).toBe(400);
       expect(res.body.error).toBe("invalid_request");
       expect(clerk.createUser).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("an agent with no inbox access (approval link + poll token)", () => {
+    const poll = (pollToken: string, email = EMAIL) =>
+      request(app).post("/internal/agent-signups/complete").set("x-api-key", API_KEY).send({ email, pollToken });
+    const approvalToken = () => new URL(JSON.parse(codeSends().at(-1)![1].body).metadata.approveUrl).searchParams.get("token")!;
+    const openLink = (token: string) =>
+      request(app).get("/internal/agent-signups/approve").query({ token }).set("x-api-key", API_KEY);
+    const confirm = (token: string) =>
+      request(app)
+        .post(`/internal/agent-signups/approve?token=${encodeURIComponent(token)}`)
+        .set("x-api-key", API_KEY)
+        .type("form")
+        .send({ token });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it("finishes when the human confirms 2 hours later, long after the 15-minute code died", async () => {
+      vi.useFakeTimers({ toFake: ["Date"] });
+      const started = await start();
+      const pollToken = started.body.pollToken as string;
+      const code = lastCode();
+      const token = approvalToken();
+
+      const pending = await poll(pollToken);
+      expect(pending.status).toBe(400);
+      expect(pending.body.error).toBe("authorization_pending");
+
+      vi.setSystemTime(Date.now() + 2 * 3_600_000);
+      expect((await complete(code)).body.error).toBe("code_expired");
+
+      // Opening the link (a mail scanner's prefetch included) approves nothing.
+      const page = await openLink(token);
+      expect(page.status).toBe(200);
+      expect(page.type).toBe("text/html");
+      expect(page.text).toContain(EMAIL);
+      expect(page.text).toContain('<form method="post">');
+      expect((await poll(pollToken)).body.error).toBe("authorization_pending");
+
+      const confirmed = await confirm(token);
+      expect(confirmed.status).toBe(200);
+      expect(confirmed.text).toContain("your agent can finish");
+
+      const done = await poll(pollToken);
+      expect(done.status).toBe(200);
+      expect(done.body).toMatchObject({ email: EMAIL, created: true, contactPhone: PHONE });
+      expect(billingMarks()).toHaveLength(1);
+
+      // Replayable until the approval window ends: same account.
+      clerk.getUserList.mockResolvedValue({
+        data: [{ id: "user_agent", privateMetadata: { signupSource: "agent_api" } }],
+        totalCount: 1,
+      });
+      const again = await poll(pollToken);
+      expect(again.body.orgId).toBe(done.body.orgId);
+      expect(clerk.createUser).toHaveBeenCalledTimes(1);
+
+      // Confirming again is idempotent.
+      expect((await confirm(token)).status).toBe(200);
+    });
+
+    it("answers JSON to a JSON caller", async () => {
+      await start();
+      const token = approvalToken();
+      const read = await openLink(token).set("accept", "application/json");
+      expect(read.body).toMatchObject({ state: "ready", email: EMAIL });
+      const done = await request(app).post("/internal/agent-signups/approve").set("x-api-key", API_KEY).send({ token });
+      expect(done.body.state).toBe("approved");
+    });
+
+    it("a link not clicked within 24 hours is approval_expired, on both sides", async () => {
+      vi.useFakeTimers({ toFake: ["Date"] });
+      const started = await start();
+      const token = approvalToken();
+      vi.setSystemTime(Date.now() + 25 * 3_600_000);
+      const page = await confirm(token);
+      expect(page.text).toContain("expired");
+      const res = await poll(started.body.pollToken);
+      expect(res.status).toBe(410);
+      expect(res.body.error).toBe("approval_expired");
+      expect(clerk.createUser).not.toHaveBeenCalled();
+    });
+
+    it("a newer request kills the older link; a poll token never works for another email", async () => {
+      const first = await start();
+      const oldToken = approvalToken();
+      await start();
+      expect((await confirm(oldToken)).text).toContain("A newer email replaced this one");
+      expect((await poll(first.body.pollToken)).body.error).toBe("no_pending_code");
+
+      const latest = approvalToken();
+      await confirm(latest);
+      const other = await poll(first.body.pollToken, "someone@else.com");
+      expect(other.status).toBe(404);
+      expect(other.body.error).toBe("poll_token_unknown");
+    });
+
+    it("an unknown link shows a not-valid page; code and pollToken together are invalid_request", async () => {
+      expect((await openLink("x".repeat(43))).text).toContain("This link is not valid");
+      const started = await start();
+      const both = await request(app)
+        .post("/internal/agent-signups/complete")
+        .set("x-api-key", API_KEY)
+        .send({ email: EMAIL, code: lastCode(), pollToken: started.body.pollToken });
+      expect(both.status).toBe(400);
+      expect(both.body.error).toBe("invalid_request");
+    });
+
+    it("requires the service key", async () => {
+      expect((await request(app).get("/internal/agent-signups/approve").query({ token: "x".repeat(43) })).status).toBe(401);
+    });
+  });
+
+  describe("phone is optional and never a verified contact", () => {
+    const startNoPhone = (email = EMAIL) =>
+      request(app).post("/internal/agent-signups/start").set("x-api-key", API_KEY).send({ email });
+
+    it("a signup with no phone succeeds with contactPhone null", async () => {
+      const started = await startNoPhone();
+      expect(started.status).toBe(200);
+      const res = await complete(lastCode());
+      expect(res.status).toBe(200);
+      expect(res.body.contactPhone).toBeNull();
+      const [user] = await db.select().from(users).where(eq(users.id, res.body.userId));
+      expect(user.contactPhone).toBeNull();
+      expect(user.phone).toBeNull();
+      await settle();
+      expect(telegramTexts().some((t) => t.includes("no phone"))).toBe(true);
+    });
+
+    it("a typed phone is stored as an unverified contact only, never as the channel identity", async () => {
+      await start();
+      const res = await complete(lastCode());
+      const [user] = await db.select().from(users).where(eq(users.id, res.body.userId));
+      expect(user.contactPhone).toBe(PHONE);
+      expect(user.phone).toBeNull();
+      const resolved = await request(app).get("/internal/phone-accounts").query({ phone: PHONE }).set("x-api-key", API_KEY);
+      expect(resolved.status).toBe(404);
+    });
+
+    it("a later signup without a phone keeps the contact already on the account", async () => {
+      await start();
+      await complete(lastCode());
+      clerk.getUserList.mockResolvedValue({
+        data: [{ id: "user_agent", privateMetadata: { signupSource: "agent_api" } }],
+        totalCount: 1,
+      });
+      await startNoPhone();
+      const res = await complete(lastCode());
+      expect(res.body.created).toBe(false);
+      expect(res.body.contactPhone).toBe(PHONE);
     });
   });
 });
