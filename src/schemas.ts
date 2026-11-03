@@ -1941,6 +1941,49 @@ registry.registerPath({
   },
 });
 
+export const OrgPhoneMemberAddBodySchema = z
+  .object({
+    phone: E164Phone.openapi({ example: "+15551234567", description: "The person's phone number, E.164: the number their WhatsApp/Telegram messages come from." }),
+  })
+  .openapi("OrgPhoneMemberAddBody");
+
+const AddedOrgPhoneMemberSchema = z
+  .object({
+    member: z.object({
+      userId: z.string().uuid().openapi({ description: "Internal user uuid the number now resolves to." }),
+      clerkUserId: z.string(),
+      phone: z.string(),
+      orgId: z.string().uuid(),
+      role: z.string().openapi({ description: "Always `org:admin`: one role per team (same as an invitation)." }),
+    }),
+    userCreated: z.boolean().openapi({ description: "Our user row was created by this call." }),
+    membershipCreated: z.boolean().openapi({ description: "The identity-provider membership was created by this call." }),
+  })
+  .openapi("AddedOrgPhoneMember");
+
+registry.registerPath({
+  method: "post",
+  path: "/internal/orgs/{orgId}/phone-members",
+  summary: "Add a person to an org by phone number only, no email",
+  description:
+    "Makes a phone number a member of an existing org: GET /internal/phone-accounts?phone= resolves it to this org from now on, so the person's WhatsApp/Telegram messages reach this account instead of a stranger's or a new empty one. Nothing is sent to the person. The person is an identity-provider user keyed on a placeholder email (never mailed); a real email added to that user later keeps the membership. A number that already answers for ANOTHER account is refused (`phone_belongs_to_another_account`), never moved; one that already answers for this org is a 200 replay. The gateway gates who may call it.",
+  security: [{ ApiKeyAuth: [] }],
+  request: {
+    params: MemberInvitationsOrgParamsSchema,
+    body: { content: { "application/json": { schema: OrgPhoneMemberAddBodySchema } } },
+  },
+  responses: {
+    201: { description: "Added", content: { "application/json": { schema: AddedOrgPhoneMemberSchema } } },
+    200: { description: "The number already answers for this org (replay)", content: { "application/json": { schema: AddedOrgPhoneMemberSchema } } },
+    400: { description: "`invalid_request` (phone not E.164)", content: { "application/json": { schema: ServiceErrorSchema } } },
+    401: { description: "Unauthorized", content: { "application/json": { schema: ErrorResponseSchema } } },
+    404: { description: "`org_not_found`", content: { "application/json": { schema: ServiceErrorSchema } } },
+    409: { description: "`phone_belongs_to_another_account`, or `org_has_no_identity` (signed-out onboarding not claimed, or an absorbed shell)", content: { "application/json": { schema: ServiceErrorSchema } } },
+    422: { description: "`member_refused`: the identity provider refused; `message` is its sentence", content: { "application/json": { schema: ServiceErrorSchema } } },
+    502: { description: "`identity_provider_failed`", content: { "application/json": { schema: ServiceErrorSchema } } },
+  },
+});
+
 registry.registerPath({
   method: "delete",
   path: "/internal/orgs/{orgId}/members/{userId}",

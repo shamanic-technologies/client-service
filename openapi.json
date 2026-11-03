@@ -2051,6 +2051,69 @@
           "email"
         ]
       },
+      "AddedOrgPhoneMember": {
+        "type": "object",
+        "properties": {
+          "member": {
+            "type": "object",
+            "properties": {
+              "userId": {
+                "type": "string",
+                "format": "uuid",
+                "description": "Internal user uuid the number now resolves to."
+              },
+              "clerkUserId": {
+                "type": "string"
+              },
+              "phone": {
+                "type": "string"
+              },
+              "orgId": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "role": {
+                "type": "string",
+                "description": "Always `org:admin`: one role per team (same as an invitation)."
+              }
+            },
+            "required": [
+              "userId",
+              "clerkUserId",
+              "phone",
+              "orgId",
+              "role"
+            ]
+          },
+          "userCreated": {
+            "type": "boolean",
+            "description": "Our user row was created by this call."
+          },
+          "membershipCreated": {
+            "type": "boolean",
+            "description": "The identity-provider membership was created by this call."
+          }
+        },
+        "required": [
+          "member",
+          "userCreated",
+          "membershipCreated"
+        ]
+      },
+      "OrgPhoneMemberAddBody": {
+        "type": "object",
+        "properties": {
+          "phone": {
+            "type": "string",
+            "pattern": "^\\+[1-9]\\d{6,14}$",
+            "example": "+15551234567",
+            "description": "The person's phone number, E.164: the number their WhatsApp/Telegram messages come from."
+          }
+        },
+        "required": [
+          "phone"
+        ]
+      },
       "RemovedOrgMember": {
         "type": "object",
         "properties": {
@@ -5050,6 +5113,121 @@
           },
           "422": {
             "description": "`member_refused`: the identity provider refused; `message` is its sentence, safe to show",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceError"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "`identity_provider_failed`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/internal/orgs/{orgId}/phone-members": {
+      "post": {
+        "summary": "Add a person to an org by phone number only, no email",
+        "description": "Makes a phone number a member of an existing org: GET /internal/phone-accounts?phone= resolves it to this org from now on, so the person's WhatsApp/Telegram messages reach this account instead of a stranger's or a new empty one. Nothing is sent to the person. The person is an identity-provider user keyed on a placeholder email (never mailed); a real email added to that user later keeps the membership. A number that already answers for ANOTHER account is refused (`phone_belongs_to_another_account`), never moved; one that already answers for this org is a 200 replay. The gateway gates who may call it.",
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Internal org uuid."
+            },
+            "required": true,
+            "description": "Internal org uuid.",
+            "name": "orgId",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OrgPhoneMemberAddBody"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The number already answers for this org (replay)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AddedOrgPhoneMember"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "Added",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AddedOrgPhoneMember"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`invalid_request` (phone not E.164)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`org_not_found`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`phone_belongs_to_another_account`, or `org_has_no_identity` (signed-out onboarding not claimed, or an absorbed shell)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceError"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "`member_refused`: the identity provider refused; `message` is its sentence",
             "content": {
               "application/json": {
                 "schema": {
