@@ -5,11 +5,13 @@ import {
   OrgOwnerTelegramMessageBodySchema,
   OrgOwnerTelegramLinkCodeBodySchema,
   OrgOwnerTelegramLinkBodySchema,
+  OwnerTelegramChatParamsSchema,
 } from "../schemas.js";
 import {
   OrgOwnerTelegramError,
   consumeLinkCode,
   createLinkCode,
+  findChatLinks,
   getOrgOwnerTelegram,
   sendToOrgOwner,
   unlinkOrgOwnerTelegram,
@@ -106,6 +108,16 @@ router.post("/internal/owner-telegram/links", requireApiKey, async (req, res) =>
     return res.json(await consumeLinkCode(body.data.code, body.data.chatId));
   } catch (error) {
     return fail(res, error, "link owner Telegram chat");
+  }
+});
+
+router.get("/internal/owner-telegram/chats/:chatId", requireApiKey, async (req, res) => {
+  const params = OwnerTelegramChatParamsSchema.safeParse(req.params);
+  if (!params.success) return invalid(res, params.error.issues);
+  try {
+    return res.json({ links: await findChatLinks(params.data.chatId) });
+  } catch (error) {
+    return fail(res, error, "read Telegram chat links");
   }
 });
 

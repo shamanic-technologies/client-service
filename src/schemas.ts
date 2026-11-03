@@ -2152,8 +2152,8 @@ registry.registerPath({
 
 export const OrgOwnerTelegramMessageBodySchema = z
   .object({
-    text: z.string().trim().min(1).max(1000).openapi({
-      description: "The one short line to send, as plain text. A link may sit inside it.",
+    text: z.string().trim().min(1).max(4096).openapi({
+      description: "The message to send, as plain text, up to Telegram's 4096 characters (a short line, or the org's Copilot answering in the chat). A link may sit inside it.",
       example: "Your post is live on LinkedIn: https://www.linkedin.com/feed/update/urn:li:activity:123",
     }),
   })
@@ -2225,6 +2225,25 @@ const OrgOwnerTelegramLinkedSchema = z
   })
   .openapi("OrgOwnerTelegramLinked");
 
+export const OwnerTelegramChatParamsSchema = z.object({
+  chatId: z.string().regex(/^-?\d{1,20}$/).openapi({ description: "Telegram chat id.", example: "123456789" }),
+});
+
+const OwnerTelegramChatLinksSchema = z
+  .object({
+    links: z
+      .array(
+        z.object({
+          orgId: z.string().uuid(),
+          orgName: z.string().nullable(),
+          userId: z.string().uuid().openapi({ description: "Internal uuid of the member who linked this chat to the org." }),
+          linkedAt: z.string().datetime(),
+        }),
+      )
+      .openapi({ description: "Orgs this chat is linked to (`linked_chat` only), newest link first. Empty = the chat is linked to no org." }),
+  })
+  .openapi("OwnerTelegramChatLinks");
+
 const ownerTelegramErrors = {
   400: { description: "`invalid_request`", content: { "application/json": { schema: ServiceErrorSchema } } },
   401: { description: "Unauthorized", content: { "application/json": { schema: ErrorResponseSchema } } },
@@ -2290,6 +2309,21 @@ registry.registerPath({
     201: { description: "The link", content: { "application/json": { schema: OrgOwnerTelegramLinkCodeSchema } } },
     502: { description: "`bot_unavailable`: the platform bot is not configured or Telegram did not answer", content: { "application/json": { schema: ServiceErrorSchema } } },
     ...ownerTelegramErrors,
+  },
+});
+
+registry.registerPath({
+  method: "get",
+  path: "/internal/owner-telegram/chats/{chatId}",
+  summary: "Which orgs is this Telegram chat linked to?",
+  description:
+    "Read by the platform bot when a chat WRITES to it: a linked chat talks with the org's Copilot as the member who linked it; no link = the chat gets the linking guidance. Only chats a member linked themselves (`linked_chat`), newest first; the platform owner's chat is never listed.",
+  security: [{ ApiKeyAuth: [] }],
+  request: { params: OwnerTelegramChatParamsSchema },
+  responses: {
+    200: { description: "The links (possibly empty)", content: { "application/json": { schema: OwnerTelegramChatLinksSchema } } },
+    400: { description: "`invalid_request`", content: { "application/json": { schema: ServiceErrorSchema } } },
+    401: { description: "Unauthorized", content: { "application/json": { schema: ErrorResponseSchema } } },
   },
 });
 
