@@ -2310,8 +2310,8 @@
           "text": {
             "type": "string",
             "minLength": 1,
-            "maxLength": 1000,
-            "description": "The one short line to send, as plain text. A link may sit inside it.",
+            "maxLength": 4096,
+            "description": "The message to send, as plain text, up to Telegram's 4096 characters (a short line, or the org's Copilot answering in the chat). A link may sit inside it.",
             "example": "Your post is live on LinkedIn: https://www.linkedin.com/feed/update/urn:li:activity:123"
           }
         },
@@ -2387,6 +2387,46 @@
         },
         "required": [
           "userId"
+        ]
+      },
+      "OwnerTelegramChatLinks": {
+        "type": "object",
+        "properties": {
+          "links": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "orgId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "orgName": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "userId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "description": "Internal uuid of the member who linked this chat to the org."
+                },
+                "linkedAt": {
+                  "type": "string",
+                  "format": "date-time"
+                }
+              },
+              "required": [
+                "orgId",
+                "orgName",
+                "userId",
+                "linkedAt"
+              ]
+            },
+            "description": "Orgs this chat is linked to (`linked_chat` only), newest link first. Empty = the chat is linked to no org."
+          }
+        },
+        "required": [
+          "links"
         ]
       },
       "OrgOwnerTelegramLinked": {
@@ -6131,6 +6171,63 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ServiceError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/internal/owner-telegram/chats/{chatId}": {
+      "get": {
+        "summary": "Which orgs is this Telegram chat linked to?",
+        "description": "Read by the platform bot when a chat WRITES to it: a linked chat talks with the org's Copilot as the member who linked it; no link = the chat gets the linking guidance. Only chats a member linked themselves (`linked_chat`), newest first; the platform owner's chat is never listed.",
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^-?\\d{1,20}$",
+              "description": "Telegram chat id.",
+              "example": "123456789"
+            },
+            "required": true,
+            "description": "Telegram chat id.",
+            "name": "chatId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The links (possibly empty)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OwnerTelegramChatLinks"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`invalid_request`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
                 }
               }
             }

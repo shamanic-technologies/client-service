@@ -139,4 +139,33 @@ describe("org owner Telegram", () => {
     expect(expired.status).toBe(410);
     expect(expired.body.error).toBe("link_code_expired");
   });
+
+  it("chat links: a linked chat names its org and the member who linked it, newest first; others name none", async () => {
+    const chats = (id: string) => request(app).get(`/internal/owner-telegram/chats/${id}`).set("x-api-key", API_KEY);
+    expect((await chats("12345")).body).toEqual({ links: [] });
+    const userA = randomId();
+    const userB = randomId();
+    const otherOrg = (await insertTestOrg({ externalId: "org_Client2", name: "Beta" })).id;
+    await db.insert(orgOwnerTelegram).values({ orgId, target: "linked_chat", chatId: "12345", linkedByUserId: userA, linkedAt: new Date("2026-11-01T00:00:00Z") });
+    await db.insert(orgOwnerTelegram).values({ orgId: otherOrg, target: "linked_chat", chatId: "12345", linkedByUserId: userB, linkedAt: new Date("2026-11-02T00:00:00Z") });
+    const res = await chats("12345");
+    expect(res.status).toBe(200);
+    expect(res.body.links).toEqual([
+      { orgId: otherOrg, orgName: "Beta", userId: userB, linkedAt: "2026-11-02T00:00:00.000Z" },
+      { orgId, orgName: "Acme", userId: userA, linkedAt: "2026-11-01T00:00:00.000Z" },
+    ]);
+    expect((await chats("777")).body).toEqual({ links: [] });
+    expect((await chats("not-a-chat")).status).toBe(400);
+  });
+
+  it("the platform owner's chat is never a client link", async () => {
+    await db.insert(orgOwnerTelegram).values({ orgId, target: "platform_owner_chat" });
+    expect((await request(app).get("/internal/owner-telegram/chats/999").set("x-api-key", API_KEY)).body).toEqual({ links: [] });
+  });
+
+  it("a Copilot answer up to Telegram's 4096 characters is accepted", async () => {
+    await db.insert(orgOwnerTelegram).values({ orgId, target: "linked_chat", chatId: "12345" });
+    expect((await send("a".repeat(4096))).body.outcome).toBe("sent");
+    expect((await send("a".repeat(4097))).status).toBe(400);
+  });
 });

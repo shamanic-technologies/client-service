@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
-import { and, eq, gt, isNull } from "drizzle-orm";
+import { and, desc, eq, gt, isNull, isNotNull } from "drizzle-orm";
 import { db } from "../db/index.js";
 import { orgOwnerTelegram, orgOwnerTelegramLinkCodes, orgs } from "../db/schema.js";
 import { errorReason } from "./pg-error.js";
@@ -212,4 +212,22 @@ export async function consumeLinkCode(
     if (!sent.ok) console.error(`[client-service] owner Telegram link confirmation not sent for org ${org.id}: ${sent.reason}`);
   }
   return { orgId: org.id, orgName: org.name, linkedAt: linked.linkedAt.toISOString(), confirmationSent };
+}
+
+export type ChatLink = { orgId: string; orgName: string | null; userId: string; linkedAt: string };
+
+/**
+ * Which orgs a Telegram chat is linked to, newest link first: what the platform
+ * bot reads when that chat WRITES to it (chat-service answers as the Copilot of
+ * the org, acting as the member who linked it). Only `linked_chat` rows with the
+ * member recorded: the platform owner's chat is the team's relay, never a client.
+ */
+export async function findChatLinks(chatId: string): Promise<ChatLink[]> {
+  const rows = await db
+    .select({ orgId: orgOwnerTelegram.orgId, orgName: orgs.name, userId: orgOwnerTelegram.linkedByUserId, linkedAt: orgOwnerTelegram.linkedAt })
+    .from(orgOwnerTelegram)
+    .innerJoin(orgs, eq(orgs.id, orgOwnerTelegram.orgId))
+    .where(and(eq(orgOwnerTelegram.target, "linked_chat"), eq(orgOwnerTelegram.chatId, chatId), isNotNull(orgOwnerTelegram.linkedByUserId)))
+    .orderBy(desc(orgOwnerTelegram.linkedAt));
+  return rows.map((r) => ({ orgId: r.orgId, orgName: r.orgName, userId: r.userId as string, linkedAt: r.linkedAt.toISOString() }));
 }
