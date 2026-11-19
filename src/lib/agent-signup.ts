@@ -15,6 +15,7 @@ import {
   findClerkOrganizationForClaim,
   findClerkUserByEmail,
   listClerkUserMemberships,
+  markClerkOrganizationSetUp,
   type ClerkOrganizationRef,
 } from "./clerk-client.js";
 import { recordFirstTouch, readFirstTouch } from "./acquisition.js";
@@ -412,6 +413,8 @@ export async function completeAgentSignup(input: {
     account = await work;
   }
 
+  await markSetUpForDashboard(account);
+
   await db
     .update(agentSignupCodes)
     .set({ consumedAt: sql`COALESCE(${agentSignupCodes.consumedAt}, now())` })
@@ -420,6 +423,31 @@ export async function completeAgentSignup(input: {
   if (input.whatsappPhone === undefined) return account;
   const binding = await bindWhatsappPhone(account.userId, input.whatsappPhone);
   return { ...account, ...binding };
+}
+
+/**
+ * The org this completion answers with is SET UP as far as the dashboard is
+ * concerned. An account that comes through here is set up in a conversation
+ * (an AI agent over the API, our AI on WhatsApp or the site), never by the
+ * dashboard's walk, which is the only other writer of the dashboard's first-run
+ * flag (at launch). Unmarked, the person who launched from a chat and then opens
+ * their dashboard is sent back to the org page on every page, their running
+ * brand offered as "Finish setup".
+ *
+ * Written on EVERY completion and for every kind of account it answers (new,
+ * returned, a claimed org): the write is idempotent, so a completion whose mark
+ * failed (502, like any Clerk failure here) converges when the proof is redeemed
+ * again, and an account opened before this existed is repaired the next time its
+ * person signs in by code. A brand-less org keeps its way forward: the
+ * dashboard's org page offers "Add a brand" whatever the flag says.
+ */
+async function markSetUpForDashboard(account: AgentAccount): Promise<void> {
+  const known = await markClerkOrganizationSetUp(account.clerkOrgId);
+  if (!known) {
+    console.warn(
+      `[client-service] org ${account.orgId} names Clerk organization ${account.clerkOrgId}, which Clerk does not know: not marked set up for the dashboard`,
+    );
+  }
 }
 
 /**
