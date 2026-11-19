@@ -135,7 +135,7 @@ describe("POST /internal/agent-signups/complete with claimOrgId", () => {
       brands = [{ id: randomId(), orgId: org.id, domain: "acme.io", name: "Acme" }];
 
       await start();
-      const res = await complete({ code: lastCode(), claimOrgId: org.id });
+      const res = await complete({ code: lastCode(), claimOrgId: org.id, claimOrgExternalId: org.externalId });
 
       expect(res.status).toBe(200);
       expect(res.body).toMatchObject({
@@ -207,7 +207,7 @@ describe("POST /internal/agent-signups/complete with claimOrgId", () => {
     it("an org with no brand is named from the email, and never gets an agent first touch", async () => {
       const org = await anonymousOrg();
       await start();
-      const res = await complete({ code: lastCode(), claimOrgId: org.id });
+      const res = await complete({ code: lastCode(), claimOrgId: org.id, claimOrgExternalId: org.externalId });
 
       expect(res.status).toBe(200);
       expect(clerk.createOrganization).toHaveBeenCalledWith({
@@ -226,7 +226,7 @@ describe("POST /internal/agent-signups/complete with claimOrgId", () => {
       const org = await anonymousOrg();
       brandServiceDown = true;
       await start();
-      const res = await complete({ code: lastCode(), claimOrgId: org.id });
+      const res = await complete({ code: lastCode(), claimOrgId: org.id, claimOrgExternalId: org.externalId });
 
       expect(res.status).toBe(200);
       expect(res.body.orgId).toBe(org.id);
@@ -242,7 +242,7 @@ describe("POST /internal/agent-signups/complete with claimOrgId", () => {
       ).searchParams.get("token")!;
       await request(app).post("/internal/agent-signups/approve").set("x-api-key", API_KEY).send({ token });
 
-      const res = await complete({ pollToken: started.body.pollToken, claimOrgId: org.id });
+      const res = await complete({ pollToken: started.body.pollToken, claimOrgId: org.id, claimOrgExternalId: org.externalId });
       expect(res.status).toBe(200);
       expect(res.body).toMatchObject({ orgId: org.id, created: true, orgClaim: "claimed" });
     });
@@ -251,7 +251,7 @@ describe("POST /internal/agent-signups/complete with claimOrgId", () => {
       const org = await anonymousOrg();
       const WA = "+33770657585";
       await start();
-      const res = await complete({ code: lastCode(), claimOrgId: org.id, whatsappPhone: WA });
+      const res = await complete({ code: lastCode(), claimOrgId: org.id, claimOrgExternalId: org.externalId, whatsappPhone: WA });
 
       expect(res.status).toBe(200);
       expect(res.body).toMatchObject({ orgId: org.id, whatsappPhone: WA, whatsappPhoneMovedFromUserId: null });
@@ -271,7 +271,7 @@ describe("POST /internal/agent-signups/complete with claimOrgId", () => {
       brands = [{ id: randomId(), orgId: org.id, domain: "acme.io", name: "Acme" }];
 
       await start();
-      const res = await complete({ code: lastCode(), claimOrgId: org.id });
+      const res = await complete({ code: lastCode(), claimOrgId: org.id, claimOrgExternalId: org.externalId });
 
       expect(res.status).toBe(200);
       expect(res.body).toMatchObject({
@@ -318,7 +318,7 @@ describe("POST /internal/agent-signups/complete with claimOrgId", () => {
       const org = await anonymousOrg();
 
       await start();
-      const claimed = await complete({ code: lastCode(), claimOrgId: org.id });
+      const claimed = await complete({ code: lastCode(), claimOrgId: org.id, claimOrgExternalId: org.externalId });
       expect(claimed.status).toBe(200);
       expect(claimed.body).toMatchObject({ orgId: org.id, userId: agent.id, created: false });
       expect(agentMarks()).toHaveLength(0);
@@ -341,12 +341,12 @@ describe("POST /internal/agent-signups/complete with claimOrgId", () => {
       const org = await anonymousOrg();
       await start();
       const code = lastCode();
-      const first = await complete({ code, claimOrgId: org.id });
+      const first = await complete({ code, claimOrgId: org.id, claimOrgExternalId: org.externalId });
       expect(first.body).toMatchObject({ created: true, orgClaim: "claimed" });
 
       clerkKnows("user_new", "agent_signup_claim", [{ id: "org_claimed", name: "acme.io", privateMetadata: { claimOfOrgId: org.id } }]);
 
-      const again = await complete({ code, claimOrgId: org.id });
+      const again = await complete({ code, claimOrgId: org.id, claimOrgExternalId: org.externalId });
       expect(again.status).toBe(200);
       expect(again.body).toMatchObject({
         orgId: org.id,
@@ -361,7 +361,7 @@ describe("POST /internal/agent-signups/complete with claimOrgId", () => {
 
       // A later, new code for the same person and org: still the same answer.
       await startNoPhone();
-      const later = await complete({ code: lastCode(), claimOrgId: org.id });
+      const later = await complete({ code: lastCode(), claimOrgId: org.id, claimOrgExternalId: org.externalId });
       expect(later.body).toMatchObject({ orgId: org.id, userId: first.body.userId, orgClaim: "already_claimed", contactPhone: PHONE });
 
       expect(clerk.createUser).toHaveBeenCalledTimes(1);
@@ -380,7 +380,7 @@ describe("POST /internal/agent-signups/complete with claimOrgId", () => {
       ]);
 
       await start();
-      const res = await complete({ code: lastCode(), claimOrgId: org.id });
+      const res = await complete({ code: lastCode(), claimOrgId: org.id, claimOrgExternalId: org.externalId });
 
       expect(res.status).toBe(200);
       expect(res.body).toMatchObject({ orgId: org.id, clerkOrgId: "org_half", clerkUserId: "user_new", created: false, orgClaim: "claimed" });
@@ -401,7 +401,7 @@ describe("POST /internal/agent-signups/complete with claimOrgId", () => {
 
     it("404 org_not_found: no such org, and no fresh org is opened instead", async () => {
       await start();
-      const res = await complete({ code: lastCode(), claimOrgId: randomId() });
+      const res = await complete({ code: lastCode(), claimOrgId: randomId(), claimOrgExternalId: "anon_unknown" });
       expect(res.status).toBe(404);
       expect(res.body.error).toBe("org_not_found");
       expect(typeof res.body.message).toBe("string");
@@ -412,7 +412,7 @@ describe("POST /internal/agent-signups/complete with claimOrgId", () => {
     it("409 org_not_anonymous: an ordinary org can never be taken this way", async () => {
       const ordinary = await insertTestOrg({ externalId: "org_somebody", name: "Somebody Inc" });
       await start();
-      const res = await complete({ code: lastCode(), claimOrgId: ordinary.id });
+      const res = await complete({ code: lastCode(), claimOrgId: ordinary.id, claimOrgExternalId: "org_somebody" });
       expect(res.status).toBe(409);
       expect(res.body.error).toBe("org_not_anonymous");
       nothingMade();
@@ -429,7 +429,7 @@ describe("POST /internal/agent-signups/complete with claimOrgId", () => {
       });
 
       await start();
-      const fresh = await complete({ code: lastCode(), claimOrgId: taken.id });
+      const fresh = await complete({ code: lastCode(), claimOrgId: taken.id, claimOrgExternalId: "anon_was" });
       expect(fresh.status).toBe(409);
       expect(fresh.body.error).toBe("org_already_claimed");
 
@@ -437,7 +437,7 @@ describe("POST /internal/agent-signups/complete with claimOrgId", () => {
       await insertTestUser({ externalId: "user_human", email: EMAIL, orgId: own.id });
       clerkKnows("user_human", undefined, [{ id: "org_mine", name: "Mine" }]);
       await start();
-      const returning = await complete({ code: lastCode(), claimOrgId: taken.id });
+      const returning = await complete({ code: lastCode(), claimOrgId: taken.id, claimOrgExternalId: "anon_was" });
       expect(returning.status).toBe(409);
       expect(returning.body.error).toBe("org_already_claimed");
 
@@ -446,9 +446,32 @@ describe("POST /internal/agent-signups/complete with claimOrgId", () => {
       expect(row.externalId).toBe("org_someone_else");
     });
 
+    it("403 org_external_id_mismatch: knowing an unclaimed org's uuid is not enough, only its opener can hand it over", async () => {
+      const org = await anonymousOrg();
+      await start();
+      const code = lastCode();
+
+      const guessed = await complete({ code, claimOrgId: org.id, claimOrgExternalId: "anon_guess" });
+      expect(guessed.status).toBe(403);
+      expect(guessed.body.error).toBe("org_external_id_mismatch");
+      nothingMade();
+      const [row] = await db.select().from(orgs).where(eq(orgs.id, org.id));
+      expect(row.claimedAt).toBeNull();
+      expect(row.externalId).toBe(org.externalId);
+
+      // The two fields travel together: either one alone is a malformed request.
+      const uuidOnly = await complete({ code, claimOrgId: org.id });
+      expect(uuidOnly.status).toBe(400);
+      expect(uuidOnly.body.error).toBe("invalid_request");
+      const externalOnly = await complete({ code, claimOrgExternalId: org.externalId });
+      expect(externalOnly.status).toBe(400);
+      expect(externalOnly.body.error).toBe("invalid_request");
+      nothingMade();
+    });
+
     it("400 invalid_request: claimOrgId is not a uuid, before any account work", async () => {
       await start();
-      const res = await complete({ code: lastCode(), claimOrgId: "org_2abc" });
+      const res = await complete({ code: lastCode(), claimOrgId: "org_2abc", claimOrgExternalId: "anon_x" });
       expect(res.status).toBe(400);
       expect(res.body.error).toBe("invalid_request");
       nothingMade();
@@ -458,8 +481,8 @@ describe("POST /internal/agent-signups/complete with claimOrgId", () => {
       const org = await anonymousOrg();
       await start();
       const code = lastCode();
-      expect((await complete({ code, claimOrgId: randomId() })).status).toBe(404);
-      const ok = await complete({ code, claimOrgId: org.id });
+      expect((await complete({ code, claimOrgId: randomId(), claimOrgExternalId: "anon_unknown" })).status).toBe(404);
+      const ok = await complete({ code, claimOrgId: org.id, claimOrgExternalId: org.externalId });
       expect(ok.status).toBe(200);
       expect(ok.body.orgId).toBe(org.id);
       const [row] = await db.select().from(agentSignupCodes);
@@ -470,7 +493,7 @@ describe("POST /internal/agent-signups/complete with claimOrgId", () => {
       await insertTestOrg({ externalId: "org_holder", name: "Acme", slug: "acme" });
       const org = await anonymousOrg();
       await start();
-      const res = await complete({ code: lastCode(), claimOrgId: org.id });
+      const res = await complete({ code: lastCode(), claimOrgId: org.id, claimOrgExternalId: org.externalId });
 
       expect(res.status).toBe(409);
       expect(res.body.error).toBe("org_slug_taken");
@@ -488,14 +511,14 @@ describe("POST /internal/agent-signups/complete with claimOrgId", () => {
       await start();
       const code = lastCode();
 
-      const failed = await complete({ code, claimOrgId: org.id });
+      const failed = await complete({ code, claimOrgId: org.id, claimOrgExternalId: org.externalId });
       expect(failed.status).toBe(502);
       expect(failed.body.error).toBe("identity_provider_failed");
       expect(clerk.deleteUser).toHaveBeenCalledWith("user_new");
       const [row] = await db.select().from(orgs).where(eq(orgs.id, org.id));
       expect(row.claimedAt).toBeNull();
 
-      const retried = await complete({ code, claimOrgId: org.id });
+      const retried = await complete({ code, claimOrgId: org.id, claimOrgExternalId: org.externalId });
       expect(retried.status).toBe(200);
       expect(retried.body).toMatchObject({ orgId: org.id, created: true });
     });
@@ -508,13 +531,13 @@ describe("POST /internal/agent-signups/complete with claimOrgId", () => {
       await start();
       const code = lastCode();
 
-      const first = await complete({ code, claimOrgId: org.id });
+      const first = await complete({ code, claimOrgId: org.id, claimOrgExternalId: org.externalId });
       expect(first.status).toBe(200);
       expect(first.body).toMatchObject({ orgId: org.id, orgClaim: "claimed", billingSettled: false });
 
       settleFails = false;
       clerkKnows("user_new", "agent_signup_claim", [{ id: "org_claimed", name: "acme.io" }]);
-      const replay = await complete({ code, claimOrgId: org.id });
+      const replay = await complete({ code, claimOrgId: org.id, claimOrgExternalId: org.externalId });
       expect(replay.body).toMatchObject({ orgId: org.id, orgClaim: "already_claimed", billingSettled: true });
       expect(settles()).toHaveLength(2);
       expect(agentMarks()).toHaveLength(0);

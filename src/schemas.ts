@@ -1718,13 +1718,22 @@ export const AgentSignupCompleteBodySchema = z
     }),
     claimOrgId: z.string().uuid().optional().openapi({
       description:
-        "OPTIONAL. The internal uuid of an UNCLAIMED org (opened with `anonymous: true` on POST /internal/resolve, as the signup page opens one) that the person built before proving their email. Once the proof passes, THAT org is handed to the proven person with the signup page's own claim: its uuid, brand, spend and first touch stay, it stops being unclaimed, and the answer's `orgId` is this id. The email's own org is neither opened nor returned, and the billing agent marker is never called for it. Refused by name, never replaced by a fresh org: `org_not_found`, `org_not_anonymous`, `org_already_claimed`. Omit it and the completion behaves exactly as before.",
+        "OPTIONAL. The internal uuid of an UNCLAIMED org (opened with `anonymous: true` on POST /internal/resolve, as the signup page opens one) that the person built before proving their email. Once the proof passes, THAT org is handed to the proven person with the signup page's own claim: its uuid, brand, spend and first touch stay, it stops being unclaimed, and the answer's `orgId` is this id. The email's own org is neither opened nor returned, and the billing agent marker is never called for it. Refused by name, never replaced by a fresh org: `org_not_found`, `org_not_anonymous`, `org_already_claimed`, `org_external_id_mismatch`. Always sent WITH `claimOrgExternalId`. Omit both and the completion behaves exactly as before.",
       example: "7f0c5b1e-3a52-4c9e-9a51-0d6f6c1f2a10",
+    }),
+    claimOrgExternalId: z.string().trim().min(1).max(200).optional().openapi({
+      description:
+        "Required with `claimOrgId`, and only with it: the throwaway `externalOrgId` YOU minted when you opened that org on POST /internal/resolve (`anonymous: true`). It proves the caller is the one that opened the org: an org's uuid alone hands nothing over (it is not a secret), and a value that is not the org's current external id is refused 403 `org_external_id_mismatch`. Mint it unguessable (the signup page uses `anon_<uuid v4>`) and never show it to a person. Keep sending the same value when you redeem the proof again: once the org is the person's, it is no longer compared.",
+      example: "anon_0b9c2f6e-6d1a-4f0e-9d5b-8a3f1c7e2b44",
     }),
   })
   .refine((b) => (b.code === undefined) !== (b.pollToken === undefined), {
     message: "send exactly one of code or pollToken",
     path: ["code"],
+  })
+  .refine((b) => (b.claimOrgId === undefined) === (b.claimOrgExternalId === undefined), {
+    message: "send claimOrgId and claimOrgExternalId together, or neither",
+    path: ["claimOrgId"],
   })
   .openapi("AgentSignupCompleteBody");
 
@@ -1773,7 +1782,7 @@ const AgentSignupErrorSchema = z
   .object({
     error: z.string().openapi({
       description:
-        "Named error: `invalid_request`, `no_pending_code`, `code_invalid`, `code_expired`, `too_many_attempts`, `authorization_pending`, `approval_expired`, `poll_token_unknown`, `code_email_failed`, `identity_provider_failed`, `billing_unavailable`. With `claimOrgId` also the org claim's refusals: `org_not_found`, `org_not_anonymous`, `org_already_claimed`, `org_slug_taken`, `external_id_taken`, `identity_holder_unverifiable`.",
+        "Named error: `invalid_request`, `no_pending_code`, `code_invalid`, `code_expired`, `too_many_attempts`, `authorization_pending`, `approval_expired`, `poll_token_unknown`, `code_email_failed`, `identity_provider_failed`, `billing_unavailable`. With `claimOrgId` also the handover's refusals: `org_not_found`, `org_not_anonymous`, `org_already_claimed`, `org_external_id_mismatch`, `org_slug_taken`, `external_id_taken`, `identity_holder_unverifiable`.",
     }),
     message: z.string(),
     attemptsLeft: z.number().int().optional().openapi({ description: "On `code_invalid` only: wrong guesses left on this code." }),
@@ -1804,20 +1813,25 @@ registry.registerPath({
   path: "/internal/agent-signups/complete",
   summary: "AI agent signup, step 2: trade the code (or the poll token, once approved) for a full account (idempotent per email)",
   description:
-    "Checks the proof of the email, `code` OR `pollToken` (exactly one), and returns the account for that email. A new email gets a full signup-equivalent account: identity-provider user carrying the REAL email (the person can sign in to the dashboard with it, no claim step), its organization, internal uuids, the phone as the user's urgent contact, and a first touch with channel `agent_api` (recordedVia `agent_signup`, readable at GET /internal/orgs/{orgId}/acquisition). NO free money: the org's billing account is created through billing-service's agent-signup marker (PUT /internal/accounts/by-org/{orgId}/agent-api-signup) BEFORE anything else can touch billing for it, so it never gets a welcome credit, advance, match or trial; the ordinary welcome path is never called. An email that already has an account returns it (`created: false`); the code proves ownership, so the caller may mint a new API key for it. A code may be redeemed again within its lifetime and returns the same account; an approved poll token likewise until `approvalExpiresAt`. WITH `claimOrgId` (the person built their plan on an unclaimed org before proving their email, e.g. in a conversation with our AI): the completion hands THAT org to the proven person through the same transition as POST /internal/orgs/{orgId}/claim, instead of opening or returning the email's own org. A new email gets an identity-provider user carrying the real email (dashboard sign-in by email code; `privateMetadata.signupSource` = `agent_signup_claim`, never `agent_api`) and a new identity-provider organization named after the org's brand (else from the email); `created: true`, `orgClaim: claimed`. An email that ALREADY has an account gets the org as a NEW organization of that user (`created: false`), never merged into one they already use, and it becomes the org the account answers with from then on. The org keeps the first touch recorded while it was unclaimed (none is written here). Billing: the signup page's settle (POST /internal/accounts/by-org/{orgId}/signup with the person's `x-user-id`), so the org stays on the offer every signup-page org gets; the agent marker is NEVER called for it, now or on a later completion. Idempotent: the same proof, or a later one, for the same person and org answers the same `orgId` and `userId` with `orgClaim: already_claimed`. A refusal is decided before anything is created, leaves the org and the proof untouched, and never falls back to opening another org.",
+    "Checks the proof of the email, `code` OR `pollToken` (exactly one), and returns the account for that email. A new email gets a full signup-equivalent account: identity-provider user carrying the REAL email (the person can sign in to the dashboard with it, no claim step), its organization, internal uuids, the phone as the user's urgent contact, and a first touch with channel `agent_api` (recordedVia `agent_signup`, readable at GET /internal/orgs/{orgId}/acquisition). NO free money: the org's billing account is created through billing-service's agent-signup marker (PUT /internal/accounts/by-org/{orgId}/agent-api-signup) BEFORE anything else can touch billing for it, so it never gets a welcome credit, advance, match or trial; the ordinary welcome path is never called. An email that already has an account returns it (`created: false`); the code proves ownership, so the caller may mint a new API key for it. A code may be redeemed again within its lifetime and returns the same account; an approved poll token likewise until `approvalExpiresAt`. WITH `claimOrgId` + `claimOrgExternalId` (the person built their plan on an unclaimed org before proving their email, e.g. in a conversation with our AI): the completion hands THAT org to the proven person through the same transition as POST /internal/orgs/{orgId}/claim, instead of opening or returning the email's own org. A new email gets an identity-provider user carrying the real email (dashboard sign-in by email code; `privateMetadata.signupSource` = `agent_signup_claim`, never `agent_api`) and a new identity-provider organization named after the org's brand (else from the email); `created: true`, `orgClaim: claimed`. An email that ALREADY has an account gets the org as a NEW organization of that user (`created: false`), never merged into one they already use, and it becomes the org the account answers with from then on. The org keeps the first touch recorded while it was unclaimed (none is written here). Billing: the signup page's settle (POST /internal/accounts/by-org/{orgId}/signup with the person's `x-user-id`), so the org stays on the offer every signup-page org gets; the agent marker is NEVER called for it, now or on a later completion. Idempotent: the same proof, or a later one, for the same person and org answers the same `orgId` and `userId` with `orgClaim: already_claimed`. A refusal is decided before anything is created, leaves the org and the proof untouched, and never falls back to opening another org.",
   security: [{ ApiKeyAuth: [] }],
   request: { body: { content: { "application/json": { schema: AgentSignupCompleteBodySchema } } } },
   responses: {
     200: { description: "Account created or returned", content: { "application/json": { schema: AgentSignupCompleteResponseSchema } } },
     400: {
       description:
-        "`invalid_request` (bad body), `code_invalid` (wrong code; `attemptsLeft` says how many guesses remain), or `authorization_pending` (pollToken: the inbox owner has not clicked the link yet; poll again after `pollIntervalSeconds`)",
+        "`invalid_request` (bad body; `claimOrgId` without `claimOrgExternalId` or the reverse included), `code_invalid` (wrong code; `attemptsLeft` says how many guesses remain), or `authorization_pending` (pollToken: the inbox owner has not clicked the link yet; poll again after `pollIntervalSeconds`)",
       content: { "application/json": { schema: AgentSignupErrorSchema } },
     },
     401: { description: "Unauthorized", content: { "application/json": { schema: ErrorResponseSchema } } },
     404: {
       description:
         "`no_pending_code`: no code was ever sent to this email, or a newer request replaced it; `poll_token_unknown`: the poll token matches no request for this email; `org_not_found`: `claimOrgId` names no org",
+      content: { "application/json": { schema: AgentSignupErrorSchema } },
+    },
+    403: {
+      description:
+        "`org_external_id_mismatch`: only with `claimOrgId`. The org is unclaimed but `claimOrgExternalId` is not the external id it was opened with, so the caller did not prove it opened it. Nothing was created.",
       content: { "application/json": { schema: AgentSignupErrorSchema } },
     },
     409: {

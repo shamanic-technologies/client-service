@@ -20,7 +20,7 @@ import { errorReason } from "../lib/pg-error.js";
  * the email's link (approve routes below, a human-facing page the gateway
  * serves publicly) (src/lib/agent-signup.ts). The completion can also
  * bind a channel-verified WhatsApp number to that account (`whatsappPhone`), and
- * hand a named unclaimed org to the proven person (`claimOrgId`: the org they
+ * hand a named unclaimed org to the proven person (`claimOrgId` + `claimOrgExternalId`: the org they
  * built in a conversation, with the signup page's own claim). api-service exposes the
  * public routes and calls these with its service key.
  */
@@ -38,6 +38,7 @@ const STATUS: Record<AgentSignupError["code"], number> = {
   org_not_found: 404,
   org_not_anonymous: 409,
   org_already_claimed: 409,
+  org_external_id_mismatch: 403,
   external_id_taken: 409,
   org_slug_taken: 409,
   identity_holder_unverifiable: 502,

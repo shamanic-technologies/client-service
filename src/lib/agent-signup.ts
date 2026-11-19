@@ -91,8 +91,12 @@ function newCode(): string {
   return randomInt(0, 1_000_000).toString().padStart(6, "0");
 }
 
-/** Why the org claim refused a handover (its `internal_error` is a plain 500, never a named refusal). */
-export type OrgHandoverRefusal = Exclude<OrgClaimRefusalReason, "internal_error">;
+/**
+ * Why a handover was refused: the org claim's own reasons (its `internal_error`
+ * is a plain 500, never a named refusal), plus the one this path adds, the
+ * caller not proving it opened the org.
+ */
+export type OrgHandoverRefusal = Exclude<OrgClaimRefusalReason, "internal_error"> | "org_external_id_mismatch";
 
 /** A named refusal the route turns into its status code. */
 export class AgentSignupError extends Error {
@@ -385,6 +389,7 @@ export async function completeAgentSignup(input: {
   pollToken?: string;
   whatsappPhone?: string;
   claimOrgId?: string;
+  claimOrgExternalId?: string;
 }): Promise<AgentAccount & Partial<WhatsappPhoneBinding> & Partial<OrgHandover>> {
   const row =
     input.pollToken !== undefined
@@ -392,9 +397,9 @@ export async function completeAgentSignup(input: {
       : await verifyCode(input.email, input.code!);
 
   let account: AgentAccount & Partial<OrgHandover>;
-  if (input.claimOrgId !== undefined) {
-    const orgId = input.claimOrgId;
-    account = await oneHandoverAtATime(input.email, () => handOverOrg(input.email, row.phone, orgId));
+  if (input.claimOrgId !== undefined && input.claimOrgExternalId !== undefined) {
+    const named = { orgId: input.claimOrgId, openedAs: input.claimOrgExternalId };
+    account = await oneHandoverAtATime(input.email, () => handOverOrg(input.email, row.phone, named));
   } else {
     // A handover of this email still running finishes first, so this call
     // answers the account it leaves rather than racing it at the identity provider.
@@ -627,8 +632,22 @@ async function keepContactPhone(userId: string, phone: string | null): Promise<s
  * Refusals are the org claim's, named, and decided before anything is made at
  * the identity provider; an identity made for a claim that is then refused is
  * removed. Never a fallback to "open a fresh org instead".
+ *
+ * WHO MAY NAME AN ORG. An org's uuid is not a credential: it travels in headers
+ * and logs across the fleet, and the public gateway forwards a caller's body to
+ * this completion as is. So an unclaimed org is handed over only to a caller
+ * that also presents `openedAs`, the throwaway external id it was opened with
+ * on /internal/resolve: minted by the opener, held by nobody else (it is what
+ * the signup page keeps in its signed session). Anything else is
+ * `org_external_id_mismatch`. A claimed org needs no such proof: it answers only
+ * to the person the identity provider already lists as its member.
  */
-async function handOverOrg(email: string, phone: string | null, orgId: string): Promise<AgentAccount & OrgHandover> {
+async function handOverOrg(
+  email: string,
+  phone: string | null,
+  named: { orgId: string; openedAs: string },
+): Promise<AgentAccount & OrgHandover> {
+  const { orgId } = named;
   const existing = await findClerkUserByEmail(email);
 
   // Advisory: it only saves creating an identity for a claim that cannot
@@ -665,6 +684,8 @@ async function handOverOrg(email: string, phone: string | null, orgId: string): 
       orgName: null,
     });
   }
+
+  if (org.externalId !== named.openedAs) throw handoverRefused("org_external_id_mismatch");
 
   const orgName = await handoverOrgName(orgId, email);
   const clerkUserId =
@@ -801,6 +822,8 @@ const HANDOVER_REFUSAL_MESSAGES: Partial<Record<OrgHandoverRefusal, string>> = {
   org_not_anonymous:
     "This org was not opened unclaimed (without an identity provider), so an email proof cannot hand it over.",
   org_already_claimed: "This org already belongs to another account.",
+  org_external_id_mismatch:
+    "claimOrgExternalId is not the external id this unclaimed org was opened with. Only the caller that opened the org can hand it over.",
 };
 
 function handoverRefused(reason: OrgHandoverRefusal, fallback = "The org could not be handed over."): AgentSignupError {
