@@ -10,6 +10,7 @@ const clerk = vi.hoisted(() => ({
   getOrganizationMembershipList: vi.fn(),
   createOrganization: vi.fn(),
   deleteOrganization: vi.fn(),
+  updateOrganizationMetadata: vi.fn(),
 }));
 vi.mock("@clerk/backend", () => ({
   createClerkClient: () => ({
@@ -19,7 +20,11 @@ vi.mock("@clerk/backend", () => ({
       deleteUser: clerk.deleteUser,
       getOrganizationMembershipList: clerk.getOrganizationMembershipList,
     },
-    organizations: { createOrganization: clerk.createOrganization, deleteOrganization: clerk.deleteOrganization },
+    organizations: {
+      createOrganization: clerk.createOrganization,
+      deleteOrganization: clerk.deleteOrganization,
+      updateOrganizationMetadata: clerk.updateOrganizationMetadata,
+    },
   }),
 }));
 
