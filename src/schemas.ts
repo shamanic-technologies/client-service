@@ -1716,6 +1716,11 @@ export const AgentSignupCompleteBodySchema = z
         "OPTIONAL. A WhatsApp number the CHANNEL verified (the message came from it), E.164. Once the code proves the email, this number becomes the account's channel identity: GET /internal/phone-accounts?phone= returns this user and org from now on, and whoever held the number before (an old phone-origin account, another user) stops resolving for it. Same number + same user = no-op. Omit it and the completion behaves exactly as before. Never send the unverified start `phone` here.",
       example: "+33612345678",
     }),
+    claimOrgId: z.string().uuid().optional().openapi({
+      description:
+        "OPTIONAL. The internal uuid of an UNCLAIMED org (opened with `anonymous: true` on POST /internal/resolve, as the signup page opens one) that the person built before proving their email. Once the proof passes, THAT org is handed to the proven person with the signup page's own claim: its uuid, brand, spend and first touch stay, it stops being unclaimed, and the answer's `orgId` is this id. The email's own org is neither opened nor returned, and the billing agent marker is never called for it. Refused by name, never replaced by a fresh org: `org_not_found`, `org_not_anonymous`, `org_already_claimed`. Omit it and the completion behaves exactly as before.",
+      example: "7f0c5b1e-3a52-4c9e-9a51-0d6f6c1f2a10",
+    }),
   })
   .refine((b) => (b.code === undefined) !== (b.pollToken === undefined), {
     message: "send exactly one of code or pollToken",
@@ -1750,6 +1755,17 @@ const AgentSignupCompleteResponseSchema = z
         description:
           "Present only when the request sent `whatsappPhone`: the user who held the number until this call (no longer resolves for it), or null when nobody else held it.",
       }),
+    claimedOrgId: z.string().uuid().optional().openapi({
+      description: "Present only when the request sent `claimOrgId`: that org, now this person's. Always equal to `orgId`.",
+    }),
+    orgClaim: z.enum(["claimed", "already_claimed"]).optional().openapi({
+      description:
+        "Present only when the request sent `claimOrgId`. `claimed`: this call handed the org over. `already_claimed`: the org was this person's already (the same proof redeemed again, or a later proof for the same person and org); nothing was made again.",
+    }),
+    billingSettled: z.boolean().optional().openapi({
+      description:
+        "Present only when the request sent `claimOrgId`: whether billing-service acknowledged the signup on this call (POST /internal/accounts/by-org/{orgId}/signup, the dashboard's own call after its claim). false never fails the handover (the org is theirs); redeeming the proof again retries it.",
+    }),
   })
   .openapi("AgentSignupCompleteResponse");
 
@@ -1757,7 +1773,7 @@ const AgentSignupErrorSchema = z
   .object({
     error: z.string().openapi({
       description:
-        "Named error: `invalid_request`, `no_pending_code`, `code_invalid`, `code_expired`, `too_many_attempts`, `authorization_pending`, `approval_expired`, `poll_token_unknown`, `code_email_failed`, `identity_provider_failed`, `billing_unavailable`.",
+        "Named error: `invalid_request`, `no_pending_code`, `code_invalid`, `code_expired`, `too_many_attempts`, `authorization_pending`, `approval_expired`, `poll_token_unknown`, `code_email_failed`, `identity_provider_failed`, `billing_unavailable`. With `claimOrgId` also the org claim's refusals: `org_not_found`, `org_not_anonymous`, `org_already_claimed`, `org_slug_taken`, `external_id_taken`, `identity_holder_unverifiable`.",
     }),
     message: z.string(),
     attemptsLeft: z.number().int().optional().openapi({ description: "On `code_invalid` only: wrong guesses left on this code." }),
@@ -1788,7 +1804,7 @@ registry.registerPath({
   path: "/internal/agent-signups/complete",
   summary: "AI agent signup, step 2: trade the code (or the poll token, once approved) for a full account (idempotent per email)",
   description:
-    "Checks the proof of the email, `code` OR `pollToken` (exactly one), and returns the account for that email. A new email gets a full signup-equivalent account: identity-provider user carrying the REAL email (the person can sign in to the dashboard with it, no claim step), its organization, internal uuids, the phone as the user's urgent contact, and a first touch with channel `agent_api` (recordedVia `agent_signup`, readable at GET /internal/orgs/{orgId}/acquisition). NO free money: the org's billing account is created through billing-service's agent-signup marker (PUT /internal/accounts/by-org/{orgId}/agent-api-signup) BEFORE anything else can touch billing for it, so it never gets a welcome credit, advance, match or trial; the ordinary welcome path is never called. An email that already has an account returns it (`created: false`); the code proves ownership, so the caller may mint a new API key for it. A code may be redeemed again within its lifetime and returns the same account; an approved poll token likewise until `approvalExpiresAt`.",
+    "Checks the proof of the email, `code` OR `pollToken` (exactly one), and returns the account for that email. A new email gets a full signup-equivalent account: identity-provider user carrying the REAL email (the person can sign in to the dashboard with it, no claim step), its organization, internal uuids, the phone as the user's urgent contact, and a first touch with channel `agent_api` (recordedVia `agent_signup`, readable at GET /internal/orgs/{orgId}/acquisition). NO free money: the org's billing account is created through billing-service's agent-signup marker (PUT /internal/accounts/by-org/{orgId}/agent-api-signup) BEFORE anything else can touch billing for it, so it never gets a welcome credit, advance, match or trial; the ordinary welcome path is never called. An email that already has an account returns it (`created: false`); the code proves ownership, so the caller may mint a new API key for it. A code may be redeemed again within its lifetime and returns the same account; an approved poll token likewise until `approvalExpiresAt`. WITH `claimOrgId` (the person built their plan on an unclaimed org before proving their email, e.g. in a conversation with our AI): the completion hands THAT org to the proven person through the same transition as POST /internal/orgs/{orgId}/claim, instead of opening or returning the email's own org. A new email gets an identity-provider user carrying the real email (dashboard sign-in by email code; `privateMetadata.signupSource` = `agent_signup_claim`, never `agent_api`) and a new identity-provider organization named after the org's brand (else from the email); `created: true`, `orgClaim: claimed`. An email that ALREADY has an account gets the org as a NEW organization of that user (`created: false`), never merged into one they already use, and it becomes the org the account answers with from then on. The org keeps the first touch recorded while it was unclaimed (none is written here). Billing: the signup page's settle (POST /internal/accounts/by-org/{orgId}/signup with the person's `x-user-id`), so the org stays on the offer every signup-page org gets; the agent marker is NEVER called for it, now or on a later completion. Idempotent: the same proof, or a later one, for the same person and org answers the same `orgId` and `userId` with `orgClaim: already_claimed`. A refusal is decided before anything is created, leaves the org and the proof untouched, and never falls back to opening another org.",
   security: [{ ApiKeyAuth: [] }],
   request: { body: { content: { "application/json": { schema: AgentSignupCompleteBodySchema } } } },
   responses: {
@@ -1801,7 +1817,12 @@ registry.registerPath({
     401: { description: "Unauthorized", content: { "application/json": { schema: ErrorResponseSchema } } },
     404: {
       description:
-        "`no_pending_code`: no code was ever sent to this email, or a newer request replaced it; `poll_token_unknown`: the poll token matches no request for this email",
+        "`no_pending_code`: no code was ever sent to this email, or a newer request replaced it; `poll_token_unknown`: the poll token matches no request for this email; `org_not_found`: `claimOrgId` names no org",
+      content: { "application/json": { schema: AgentSignupErrorSchema } },
+    },
+    409: {
+      description:
+        "Only with `claimOrgId`, the handover is refused and nothing was created: `org_not_anonymous` (the org was never opened unclaimed, so an email proof cannot hand it over), `org_already_claimed` (it already belongs to another account), `org_slug_taken` (the new organization's slug is held by another org; the identity made for the claim was removed, retry). `external_id_taken` is the org claim's fourth refusal and is not expected here (the identity is created by this call).",
       content: { "application/json": { schema: AgentSignupErrorSchema } },
     },
     410: {
@@ -1813,7 +1834,7 @@ registry.registerPath({
       content: { "application/json": { schema: AgentSignupErrorSchema } },
     },
     502: {
-      description: "`identity_provider_failed`: Clerk refused or failed (nothing half-made is kept), or `billing_unavailable`: billing-service could not mark the org; retry with the same code",
+      description: "`identity_provider_failed`: Clerk refused or failed (nothing half-made is kept), or `billing_unavailable`: billing-service could not mark the org; retry with the same code. With `claimOrgId` also `identity_holder_unverifiable` (the org claim could not verify another holder of the identity; not expected here)",
       content: { "application/json": { schema: AgentSignupErrorSchema } },
     },
   },

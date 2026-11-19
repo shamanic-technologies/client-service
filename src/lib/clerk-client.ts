@@ -319,7 +319,7 @@ export async function getClerkOrganizationNames(
 }
 
 /** Route label key-service records for the agent-signup Clerk calls. */
-const AGENT_SIGNUP_CALLER = { method: "POST", path: "/internal/agent-signups/complete" };
+export const AGENT_SIGNUP_CALLER = { method: "POST", path: "/internal/agent-signups/complete" };
 
 /**
  * Server-only marker on a Clerk user created by an AI agent's signup. It is what
@@ -362,16 +362,67 @@ export interface ClerkOrganizationRef {
 
 /**
  * Create a Clerk organization administered by `clerkUserId` (createdBy), as a
- * dashboard signup does. Fail loud: any Clerk failure throws ClerkServiceError.
+ * dashboard signup does. `privateMetadata` (server-only), when given, is written
+ * at creation. Fail loud: any Clerk failure throws ClerkServiceError.
  */
 export async function createClerkOrganizationFor(
   clerkUserId: string,
   orgName: string,
+  privateMetadata?: Record<string, unknown>,
 ): Promise<ClerkOrganizationRef> {
   const clerk = await getClerkClient(AGENT_SIGNUP_CALLER);
   try {
-    const org = await clerk.organizations.createOrganization({ name: orgName, createdBy: clerkUserId });
+    const org = await clerk.organizations.createOrganization({
+      name: orgName,
+      createdBy: clerkUserId,
+      ...(privateMetadata !== undefined && { privateMetadata }),
+    });
     return { clerkOrgId: org.id, slug: org.slug ?? null };
+  } catch (err: unknown) {
+    throw new ClerkServiceError(errorStatus(err), errorBody(err));
+  }
+}
+
+/**
+ * Server-only marker on a Clerk user created when a person proved their email
+ * to take over the unclaimed org they built (agent-signup completion with
+ * `claimOrgId`). Deliberately NOT `agent_api`: that marker keys the agent
+ * billing offer, and this person is on the signup page's path.
+ */
+export const AGENT_SIGNUP_CLAIM_SOURCE = "agent_signup_claim";
+
+/**
+ * Key of a Clerk organization's privateMetadata naming the internal org uuid it
+ * was created FOR (an agent-signup completion with `claimOrgId`). A recorded
+ * fact, written at creation: it is what lets a retry find the organization a
+ * stopped attempt already made instead of making a second one.
+ */
+export const CLAIM_OF_ORG_KEY = "claimOfOrgId";
+
+/**
+ * The Clerk organization `clerkUserId` belongs to that was created for the claim
+ * of internal org `orgId` (privateMetadata `claimOfOrgId`), or null when there is
+ * none. Any failure throws ClerkServiceError: "could not ask" must never read as
+ * "none", or a second organization is created for the same claim.
+ */
+export async function findClerkOrganizationForClaim(
+  clerkUserId: string,
+  orgId: string,
+): Promise<ClerkOrganizationRef | null> {
+  const clerk = await getClerkClient(AGENT_SIGNUP_CALLER);
+  try {
+    for (let offset = 0; ; offset += CLERK_PAGE_LIMIT) {
+      const page = await clerk.users.getOrganizationMembershipList({
+        userId: clerkUserId,
+        limit: CLERK_PAGE_LIMIT,
+        offset,
+      });
+      for (const m of page.data) {
+        const marker = (m.organization.privateMetadata as Record<string, unknown> | null | undefined)?.[CLAIM_OF_ORG_KEY];
+        if (marker === orgId) return { clerkOrgId: m.organization.id, slug: m.organization.slug ?? null };
+      }
+      if (page.data.length < CLERK_PAGE_LIMIT || offset + page.data.length >= page.totalCount) return null;
+    }
   } catch (err: unknown) {
     throw new ClerkServiceError(errorStatus(err), errorBody(err));
   }

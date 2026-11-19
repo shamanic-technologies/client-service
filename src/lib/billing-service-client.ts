@@ -203,6 +203,44 @@ export async function notifyProductTaskCompleted(params: {
 }
 
 /**
+ * Tell billing-service an org SIGNED UP, via
+ * `POST /internal/accounts/by-org/{orgId}/signup`: the call the dashboard makes
+ * right after the signup page's claim (`settleWelcomeOnSignup`). Billing creates
+ * the org's account on the offer every new signup gets when none exists yet, and
+ * lands its onboarding free credit on exactly what that offer grants (the amount
+ * is billing's: none is held here). Idempotent.
+ *
+ * `userId` is the person's INTERNAL user uuid (`x-user-id`): billing's signup
+ * credit is once per PERSON, so it must know who signed up.
+ *
+ * This is the path of an org born on the signup page's flow. An org opened by an
+ * AI agent takes `markAgentApiSignup` below instead, never both.
+ *
+ * Fail loud: any non-2xx throws BillingServiceError. The caller decides what a
+ * failure costs.
+ */
+export async function settleSignupAtBilling(orgId: string, userId: string): Promise<void> {
+  const baseUrl = process.env.BILLING_SERVICE_URL;
+  const apiKey = process.env.BILLING_SERVICE_API_KEY;
+  if (!baseUrl) {
+    throw new Error("[client-service] BILLING_SERVICE_URL not configured");
+  }
+  if (!apiKey) {
+    throw new Error("[client-service] BILLING_SERVICE_API_KEY not configured");
+  }
+
+  const url = `${baseUrl.replace(/\/$/, "")}/internal/accounts/by-org/${encodeURIComponent(orgId)}/signup`;
+  const res = await fetchWithRetry(url, {
+    method: "POST",
+    headers: { "x-api-key": apiKey, "x-user-id": userId },
+  });
+
+  if (!res.ok) {
+    throw new BillingServiceError(res.status, await res.text());
+  }
+}
+
+/**
  * Mark a freshly signed-up AI-agent org at billing-service, via
  * `PUT /internal/accounts/by-org/{orgId}/agent-api-signup`, BEFORE anything else
  * touches billing for that org.

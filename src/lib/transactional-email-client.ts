@@ -121,7 +121,7 @@ export async function sendAgentSignupCode(mail: SignupEmail): Promise<void> {
  * platform-paid, once per org). Fire-and-forget: a staff notification never fails
  * the signup it reports; a failure is logged loudly.
  */
-export function notifyStaffSignup(params: { orgId: string; email: string }): void {
+export function notifyStaffSignup(params: { orgId: string; email: string; source?: string }): void {
   void (async () => {
     const { url, apiKey } = getConfig();
     const res = await fetchWithRetry(`${url}/platform-send`, {
@@ -129,7 +129,7 @@ export function notifyStaffSignup(params: { orgId: string; email: string }): voi
       headers: { "content-type": "application/json", "x-api-key": apiKey, "x-org-id": params.orgId },
       body: JSON.stringify({
         eventType: "signup_notification",
-        metadata: { email: params.email, timestamp: new Date().toISOString(), source: "agent_api" },
+        metadata: { email: params.email, timestamp: new Date().toISOString(), source: params.source ?? "agent_api" },
       }),
     });
     if (!res.ok) throw new TransactionalEmailError(res.status, await res.text());
