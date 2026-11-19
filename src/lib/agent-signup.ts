@@ -3,17 +3,25 @@ import { and, desc, eq, isNull, ne, sql } from "drizzle-orm";
 import { db } from "../db/index.js";
 import { agentSignupCodes, orgs, users, type AgentSignupCode } from "../db/schema.js";
 import {
+  AGENT_SIGNUP_CALLER,
+  AGENT_SIGNUP_CLAIM_SOURCE,
   AGENT_SIGNUP_SOURCE,
+  CLAIM_OF_ORG_KEY,
   createClerkEmailAccount,
   createClerkOrganizationFor,
+  createClerkUserForEmail,
   deleteClerkOrganization,
   deleteClerkUser,
+  findClerkOrganizationForClaim,
   findClerkUserByEmail,
   listClerkUserMemberships,
+  type ClerkOrganizationRef,
 } from "./clerk-client.js";
 import { recordFirstTouch, readFirstTouch } from "./acquisition.js";
 import { resolveIdentity } from "./resolve-identity.js";
-import { markAgentApiSignup } from "./billing-service-client.js";
+import { markAgentApiSignup, settleSignupAtBilling } from "./billing-service-client.js";
+import { listBrandClaimsForOrgs } from "./brand-service-client.js";
+import { claimOrg, type OrgClaimRefusalReason } from "./org-claim.js";
 import { orgNameForEmail } from "./org-name.js";
 import { notifyOwner } from "./owner-telegram.js";
 import { notifyStaffSignup } from "./transactional-email-client.js";
@@ -83,6 +91,13 @@ function newCode(): string {
   return randomInt(0, 1_000_000).toString().padStart(6, "0");
 }
 
+/**
+ * Why a handover was refused: the org claim's own reasons (its `internal_error`
+ * is a plain 500, never a named refusal), plus the one this path adds, the
+ * caller not proving it opened the org.
+ */
+export type OrgHandoverRefusal = Exclude<OrgClaimRefusalReason, "internal_error"> | "org_external_id_mismatch";
+
 /** A named refusal the route turns into its status code. */
 export class AgentSignupError extends Error {
   constructor(
@@ -93,7 +108,10 @@ export class AgentSignupError extends Error {
       | "too_many_attempts"
       | "authorization_pending"
       | "approval_expired"
-      | "poll_token_unknown",
+      | "poll_token_unknown"
+      // The handover of a named unclaimed org (`claimOrgId`) was refused: the
+      // org claim's own reasons, under the names POST /internal/orgs/:orgId/claim gives them.
+      | OrgHandoverRefusal,
     message: string,
     public readonly attemptsLeft?: number,
   ) {
@@ -319,31 +337,80 @@ export interface WhatsappPhoneBinding {
   whatsappPhoneMovedFromUserId: string | null;
 }
 
+/**
+ * What handing a named unclaimed org to the proven person did. Present on the
+ * completion's answer only when the request named one (`claimOrgId`).
+ */
+export interface OrgHandover {
+  /** The org named by the request: always the answer's `orgId`. */
+  claimedOrgId: string;
+  /** `claimed`: this call handed it over. `already_claimed`: it was this person's already (a replay). */
+  orgClaim: "claimed" | "already_claimed";
+  /** Whether billing heard about the signup on this call. false is retried by a replay. */
+  billingSettled: boolean;
+}
+
 /** One provision at a time per email in this process: a double submit returns one account. */
 const inFlight = new Map<string, Promise<AgentAccount>>();
+
+/** The handover running for an email, if any. Never rejects (it is only waited on). */
+const handoversInFlight = new Map<string, Promise<unknown>>();
+
+/**
+ * Handovers of one email run one after the other, and after any plain provision
+ * of that email already running: the second of two identical requests then sees
+ * what the first did and replays it, instead of making a second identity.
+ */
+async function oneHandoverAtATime<T>(email: string, work: () => Promise<T>): Promise<T> {
+  const before = Promise.allSettled([handoversInFlight.get(email), inFlight.get(email)]);
+  const run = before.then(work);
+  const tail = run.catch(() => undefined);
+  handoversInFlight.set(email, tail);
+  try {
+    return await run;
+  } finally {
+    if (handoversInFlight.get(email) === tail) handoversInFlight.delete(email);
+  }
+}
 
 /**
  * Step 2. With `whatsappPhone` (a number the CHANNEL verified: the message came
  * from it, owner 2026-10-18 "the sender's WhatsApp number IS their identity"),
  * the number becomes the account's channel mapping key (`users.phone`) once the
  * code has proved the email. Never the start's `phone`: that one is unverified.
+ *
+ * With `claimOrgId` (DISTRY-ONE-AI-1118), the proven person takes over that
+ * unclaimed org instead of getting the email's own (`handOverOrg`). Without it,
+ * nothing below differs from before the field existed.
  */
 export async function completeAgentSignup(input: {
   email: string;
   code?: string;
   pollToken?: string;
   whatsappPhone?: string;
-}): Promise<AgentAccount & Partial<WhatsappPhoneBinding>> {
+  claimOrgId?: string;
+  claimOrgExternalId?: string;
+}): Promise<AgentAccount & Partial<WhatsappPhoneBinding> & Partial<OrgHandover>> {
   const row =
     input.pollToken !== undefined
       ? await verifyPollToken(input.email, input.pollToken)
       : await verifyCode(input.email, input.code!);
 
-  const pending = inFlight.get(input.email);
-  if (pending) return pending;
-  const work = provision(input.email, row.phone).finally(() => inFlight.delete(input.email));
-  inFlight.set(input.email, work);
-  const account = await work;
+  let account: AgentAccount & Partial<OrgHandover>;
+  if (input.claimOrgId !== undefined && input.claimOrgExternalId !== undefined) {
+    const named = { orgId: input.claimOrgId, openedAs: input.claimOrgExternalId };
+    account = await oneHandoverAtATime(input.email, () => handOverOrg(input.email, row.phone, named));
+  } else {
+    // A handover of this email still running finishes first, so this call
+    // answers the account it leaves rather than racing it at the identity provider.
+    const handover = handoversInFlight.get(input.email);
+    if (handover) await handover;
+    const pending = inFlight.get(input.email);
+    if (pending) return pending;
+    const work = provision(input.email, row.phone).finally(() => inFlight.delete(input.email));
+    inFlight.set(input.email, work);
+    account = await work;
+  }
 
   await db
     .update(agentSignupCodes)
@@ -470,28 +537,33 @@ async function returnExisting(
       email,
       orgName: target.name,
     });
-    resolved = { orgId: identity.org.id, userId: identity.user.id, clerkOrgId: target.clerkOrgId };
+    resolved = {
+      orgId: identity.org.id,
+      userId: identity.user.id,
+      clerkOrgId: target.clerkOrgId,
+      anonymousBorn: identity.org.anonymousAt !== null,
+    };
   }
 
-  // No phone given = keep whatever contact the user already has.
-  let contactPhone = phone;
-  if (phone) {
-    await db.update(users).set({ contactPhone: phone, updatedAt: new Date() }).where(eq(users.id, resolved.userId));
-  } else {
-    const [u] = await db.select({ contactPhone: users.contactPhone }).from(users).where(eq(users.id, resolved.userId));
-    contactPhone = u.contactPhone;
-  }
+  const contactPhone = await keepContactPhone(resolved.userId, phone);
 
   // An agent-born account (marked on the Clerk user at creation, or by its first
   // touch) is kept off free money on every return, so a provision that stopped
   // before billing heard about it converges here. An ordinary customer's account
   // is returned as is: its billing account is never re-labelled.
-  const touch = await readFirstTouch(db, resolved.orgId);
-  if (agentBorn && !touch) {
-    await recordFirstTouch(db, resolved.orgId, { channel: AGENT_CHANNEL }, "agent_signup");
-  }
-  if (agentBorn || touch?.channel === AGENT_CHANNEL) {
-    await markAgentApiSignup(resolved.orgId);
+  //
+  // An org that was opened unclaimed and then claimed (`anonymous_at`, a fact
+  // recorded at its creation) was born on the signup page's path, WHOEVER uses
+  // it now: an agent-born person who took one over (`claimOrgId`) keeps it on
+  // the signup page's billing offer, so the agent marker never runs for it.
+  if (!resolved.anonymousBorn) {
+    const touch = await readFirstTouch(db, resolved.orgId);
+    if (agentBorn && !touch) {
+      await recordFirstTouch(db, resolved.orgId, { channel: AGENT_CHANNEL }, "agent_signup");
+    }
+    if (agentBorn || touch?.channel === AGENT_CHANNEL) {
+      await markAgentApiSignup(resolved.orgId);
+    }
   }
 
   return {
@@ -508,13 +580,258 @@ async function returnExisting(
 /** Our rows for a Clerk user whose current org we already hold (and is not a shell). */
 async function currentOrgOf(
   clerkUserId: string,
-): Promise<{ orgId: string; userId: string; clerkOrgId: string } | null> {
+): Promise<{ orgId: string; userId: string; clerkOrgId: string; anonymousBorn: boolean } | null> {
   const [row] = await db
-    .select({ userId: users.id, orgId: orgs.id, clerkOrgId: orgs.externalId, absorbedAt: orgs.absorbedAt })
+    .select({
+      userId: users.id,
+      orgId: orgs.id,
+      clerkOrgId: orgs.externalId,
+      absorbedAt: orgs.absorbedAt,
+      anonymousAt: orgs.anonymousAt,
+    })
     .from(users)
     .innerJoin(orgs, eq(users.orgId, orgs.id))
     .where(eq(users.externalId, clerkUserId))
     .limit(1);
   if (!row || row.absorbedAt || !row.clerkOrgId) return null;
-  return { orgId: row.orgId, userId: row.userId, clerkOrgId: row.clerkOrgId };
+  return { orgId: row.orgId, userId: row.userId, clerkOrgId: row.clerkOrgId, anonymousBorn: row.anonymousAt !== null };
+}
+
+/** Store the start's phone as the user's urgent contact. No phone given = keep whatever contact they already have. */
+async function keepContactPhone(userId: string, phone: string | null): Promise<string | null> {
+  if (phone) {
+    await db.update(users).set({ contactPhone: phone, updatedAt: new Date() }).where(eq(users.id, userId));
+    return phone;
+  }
+  const [u] = await db.select({ contactPhone: users.contactPhone }).from(users).where(eq(users.id, userId));
+  return u.contactPhone;
+}
+
+/**
+ * The proven person takes over the unclaimed org `orgId` (DISTRY-ONE-AI-1118):
+ * the org they built in a conversation, opened exactly as the signup page opens
+ * one (`anonymous: true` on /internal/resolve). The outcome is the signup page's
+ * claim, through the SAME transition (`claimOrg`): the internal uuid stays, with
+ * its brand, spend and first touch; only the identity underneath changes.
+ *
+ * What the dashboard does around its claim, and where each piece lives here:
+ *  - the identity-provider user and organization the signup page gets from the
+ *    person's own Clerk signup are created HERE, the user carrying the real
+ *    email (dashboard sign-in by email code), never marked `agent_api`;
+ *  - the organization is named as the dashboard names it: after the brand, else
+ *    from the email (`handoverOrgName`);
+ *  - billing hears about the signup through the dashboard's own call
+ *    (`settleSignupAtBilling`), so the org keeps the signup page's offer. The
+ *    agent marker is never called on this path.
+ *
+ * A person whose email ALREADY has an account gets the org as a NEW organization
+ * of theirs (the signup page's rule for a returning person): never merged into
+ * one they already use. No first touch is written: the one recorded while the
+ * org was unclaimed stands, and none is invented.
+ *
+ * Refusals are the org claim's, named, and decided before anything is made at
+ * the identity provider; an identity made for a claim that is then refused is
+ * removed. Never a fallback to "open a fresh org instead".
+ *
+ * WHO MAY NAME AN ORG. An org's uuid is not a credential: it travels in headers
+ * and logs across the fleet, and the public gateway forwards a caller's body to
+ * this completion as is. So an unclaimed org is handed over only to a caller
+ * that also presents `openedAs`, the throwaway external id it was opened with
+ * on /internal/resolve: minted by the opener, held by nobody else (it is what
+ * the signup page keeps in its signed session). Anything else is
+ * `org_external_id_mismatch`. A claimed org needs no such proof: it answers only
+ * to the person the identity provider already lists as its member.
+ */
+async function handOverOrg(
+  email: string,
+  phone: string | null,
+  named: { orgId: string; openedAs: string },
+): Promise<AgentAccount & OrgHandover> {
+  const { orgId } = named;
+  const existing = await findClerkUserByEmail(email);
+
+  // Advisory: it only saves creating an identity for a claim that cannot
+  // succeed. The claim itself decides again under the row lock.
+  const [org] = await db
+    .select({ anonymousAt: orgs.anonymousAt, claimedAt: orgs.claimedAt, externalId: orgs.externalId })
+    .from(orgs)
+    .where(eq(orgs.id, orgId))
+    .limit(1);
+  if (!org) throw handoverRefused("org_not_found");
+  if (!org.anonymousAt) throw handoverRefused("org_not_anonymous");
+
+  if (org.claimedAt) {
+    // Claimed: theirs already (a replay of this handover, or the org they
+    // claimed on the signup page), or somebody else's. The membership set is
+    // the identity provider's, read live.
+    const theirs =
+      existing !== null &&
+      org.externalId !== null &&
+      ((await listClerkUserMemberships(existing.clerkUserId)) ?? []).some((m) => m.clerkOrgId === org.externalId);
+    if (!existing || !org.externalId || !theirs) throw handoverRefused("org_already_claimed");
+
+    const replay = await claimOrg(orgId, { externalOrgId: org.externalId, externalUserId: existing.clerkUserId, email });
+    if (replay.status !== 200) throw handoverRefusedBy(replay.body);
+    return finishHandover({
+      orgId,
+      userId: replay.body.userId,
+      email,
+      phone,
+      clerkOrgId: org.externalId,
+      clerkUserId: existing.clerkUserId,
+      created: false,
+      alreadyClaimed: true,
+      orgName: null,
+    });
+  }
+
+  if (org.externalId !== named.openedAs) throw handoverRefused("org_external_id_mismatch");
+
+  const orgName = await handoverOrgName(orgId, email);
+  const clerkUserId =
+    existing?.clerkUserId ??
+    (await createClerkUserForEmail(email, { caller: AGENT_SIGNUP_CALLER, signupSource: AGENT_SIGNUP_CLAIM_SOURCE }));
+  const createdUser = existing === null;
+
+  // Nothing half-made: an identity made for this claim goes when the claim does
+  // not happen, so a retry starts clean.
+  const removeIdentity = async (clerkOrgId: string | null) => {
+    if (clerkOrgId) {
+      await deleteClerkOrganization(clerkOrgId).catch((e) =>
+        console.error(`[client-service] orphan Clerk org ${clerkOrgId} cleanup failed:`, e),
+      );
+    }
+    if (createdUser) {
+      await deleteClerkUser(clerkUserId).catch((e) =>
+        console.error(`[client-service] orphan Clerk user ${clerkUserId} cleanup failed:`, e),
+      );
+    }
+  };
+
+  let clerkOrg: ClerkOrganizationRef;
+  try {
+    // An attempt that stopped between Clerk and our rows left the organization
+    // it made, marked with this org: reuse it rather than make a second one.
+    clerkOrg =
+      (existing ? await findClerkOrganizationForClaim(clerkUserId, orgId) : null) ??
+      (await createClerkOrganizationFor(clerkUserId, orgName, { [CLAIM_OF_ORG_KEY]: orgId }));
+  } catch (err) {
+    await removeIdentity(null);
+    throw err;
+  }
+
+  const claim = await claimOrg(orgId, {
+    externalOrgId: clerkOrg.clerkOrgId,
+    externalUserId: clerkUserId,
+    email,
+    orgName,
+    ...(clerkOrg.slug !== null && { orgSlug: clerkOrg.slug }),
+  });
+  if (claim.status !== 200) {
+    await removeIdentity(clerkOrg.clerkOrgId);
+    throw handoverRefusedBy(claim.body);
+  }
+
+  return finishHandover({
+    orgId,
+    userId: claim.body.userId,
+    email,
+    phone,
+    clerkOrgId: clerkOrg.clerkOrgId,
+    clerkUserId,
+    created: createdUser,
+    alreadyClaimed: claim.body.alreadyClaimed,
+    orgName,
+  });
+}
+
+/** After the claim: the contact phone, billing, and (once, at the handover) staff. */
+async function finishHandover(done: {
+  orgId: string;
+  userId: string;
+  email: string;
+  phone: string | null;
+  clerkOrgId: string;
+  clerkUserId: string;
+  created: boolean;
+  alreadyClaimed: boolean;
+  orgName: string | null;
+}): Promise<AgentAccount & OrgHandover> {
+  const contactPhone = await keepContactPhone(done.userId, done.phone);
+  const billingSettled = await settleSignup(done.orgId, done.userId);
+
+  if (!done.alreadyClaimed) {
+    notifyStaffSignup({ orgId: done.orgId, email: done.email, source: AGENT_SIGNUP_CLAIM_SOURCE });
+    notifyOwner(
+      done.email,
+      done.created
+        ? `🆕 ${done.email} · signed up in conversation, the org they built is theirs: ${done.orgName}${phoneSuffix(done.phone)}`
+        : `➕ ${done.email} · existing account, took the org they built in conversation as a new organization: ${done.orgName}${phoneSuffix(done.phone)}`,
+    );
+  }
+
+  return {
+    orgId: done.orgId,
+    userId: done.userId,
+    email: done.email,
+    contactPhone,
+    clerkOrgId: done.clerkOrgId,
+    clerkUserId: done.clerkUserId,
+    created: done.created,
+    claimedOrgId: done.orgId,
+    orgClaim: done.alreadyClaimed ? "already_claimed" : "claimed",
+    billingSettled,
+  };
+}
+
+/**
+ * The dashboard's own call after its claim, with its own rule: by now the org IS
+ * theirs, and losing the handover over a credit settle would be the expensive
+ * mistake. A failure is logged loud and reported (`billingSettled: false`);
+ * billing makes a retry safe, and a replay of the completion retries it.
+ */
+async function settleSignup(orgId: string, userId: string): Promise<boolean> {
+  try {
+    await settleSignupAtBilling(orgId, userId);
+    return true;
+  } catch (err) {
+    console.error(`[client-service] signup settle at billing FAILED for claimed org ${orgId} (user ${userId}):`, err);
+    return false;
+  }
+}
+
+/**
+ * What the claimed organization is called, by the dashboard's rule (owner
+ * 2026-10-18): after the BRAND the person built when the org claims exactly one
+ * named brand, else from the email (`orgNameForEmail`). Naming is never worth a
+ * signup: a brand read that fails is logged and the org is named from the email.
+ */
+async function handoverOrgName(orgId: string, email: string): Promise<string> {
+  try {
+    const names = new Set((await listBrandClaimsForOrgs([orgId])).map((claim) => claim.name.trim()).filter(Boolean));
+    if (names.size === 1) return [...names][0];
+  } catch (err) {
+    console.error(`[client-service] brand name read for the handover of org ${orgId} failed, naming it from the email:`, err);
+  }
+  return orgNameForEmail(email);
+}
+
+/** What the caller reads for each refusal the handover decides itself (before anything is made). */
+const HANDOVER_REFUSAL_MESSAGES: Partial<Record<OrgHandoverRefusal, string>> = {
+  org_not_found: "claimOrgId names no org. Nothing was created: no other org is opened instead.",
+  org_not_anonymous:
+    "This org was not opened unclaimed (without an identity provider), so an email proof cannot hand it over.",
+  org_already_claimed: "This org already belongs to another account.",
+  org_external_id_mismatch:
+    "claimOrgExternalId is not the external id this unclaimed org was opened with. Only the caller that opened the org can hand it over.",
+};
+
+function handoverRefused(reason: OrgHandoverRefusal, fallback = "The org could not be handed over."): AgentSignupError {
+  return new AgentSignupError(reason, HANDOVER_REFUSAL_MESSAGES[reason] ?? fallback);
+}
+
+/** A refusal decided by the claim itself. Its `internal_error` is not a named refusal: it stays a plain failure. */
+function handoverRefusedBy(body: { error: string; reason: OrgClaimRefusalReason }): Error {
+  if (body.reason === "internal_error") return new Error(`org claim failed: ${body.error}`);
+  return handoverRefused(body.reason, body.error);
 }
