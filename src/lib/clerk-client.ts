@@ -500,6 +500,29 @@ export async function createClerkClientOrganization(
 }
 
 /**
+ * Mark a Clerk organization SET UP for the dashboard: `publicMetadata.onboardingComplete
+ * = true`, the first-run flag the dashboard reads from the session at its edge
+ * (`proxy.ts`). Without it every page but the org's own is sent back to the org
+ * page, and the org's brands are offered as "Finish setup" (the brand walk)
+ * instead of opened. Clerk merges the patch, so other keys stay and a repeat is
+ * a no-op.
+ *
+ * Returns false when Clerk does not know the organization (404): nobody can
+ * hold a dashboard session on it, so there is nothing to mark. Any other
+ * failure throws ClerkServiceError (fail loud).
+ */
+export async function markClerkOrganizationSetUp(clerkOrgId: string): Promise<boolean> {
+  const clerk = await getClerkClient(AGENT_SIGNUP_CALLER);
+  try {
+    await clerk.organizations.updateOrganizationMetadata(clerkOrgId, { publicMetadata: { onboardingComplete: true } });
+    return true;
+  } catch (err: unknown) {
+    if (isNotFound(err)) return false;
+    throw new ClerkServiceError(errorStatus(err), errorBody(err));
+  }
+}
+
+/**
  * Whether Clerk knows this user id. A user row of ours can carry an id Clerk
  * does not have (a staff identity made outside the identity provider); a 404 is
  * that answer, any other failure throws ClerkServiceError.
