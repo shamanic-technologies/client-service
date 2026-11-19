@@ -19,7 +19,9 @@ import { errorReason } from "../lib/pg-error.js";
  * the account for the code, or for the poll token once the inbox owner clicked
  * the email's link (approve routes below, a human-facing page the gateway
  * serves publicly) (src/lib/agent-signup.ts). The completion can also
- * bind a channel-verified WhatsApp number to that account (`whatsappPhone`). api-service exposes the
+ * bind a channel-verified WhatsApp number to that account (`whatsappPhone`), and
+ * hand a named unclaimed org to the proven person (`claimOrgId` + `claimOrgExternalId`: the org they
+ * built in a conversation, with the signup page's own claim). api-service exposes the
  * public routes and calls these with its service key.
  */
 const router = Router();
@@ -32,6 +34,14 @@ const STATUS: Record<AgentSignupError["code"], number> = {
   authorization_pending: 400,
   approval_expired: 410,
   poll_token_unknown: 404,
+  // The handover of a named unclaimed org (`claimOrgId`): the org claim's own statuses.
+  org_not_found: 404,
+  org_not_anonymous: 409,
+  org_already_claimed: 409,
+  org_external_id_mismatch: 403,
+  external_id_taken: 409,
+  org_slug_taken: 409,
+  identity_holder_unverifiable: 502,
 };
 
 function invalid(res: Response, message: string) {
