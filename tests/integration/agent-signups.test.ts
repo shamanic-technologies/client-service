@@ -141,7 +141,8 @@ describe("agent-signups routes", () => {
       // Nothing exists in the identity provider at this step.
       expect(clerk.createUser).not.toHaveBeenCalled();
       await settle();
-      expect(telegramTexts()).toEqual([expect.stringContaining(`${EMAIL} · asked for an API signup code`)]);
+      // TG-EVERY-CALL-1124: the gateway's per-call Telegram line already reports this step, so no second line here.
+      expect(telegramTexts()).toHaveLength(0);
     });
 
     it("re-requesting sends a NEW code and the earlier one stops working", async () => {
@@ -281,6 +282,10 @@ describe("agent-signups routes", () => {
 
       expect(clerk.createUser).toHaveBeenCalledTimes(1);
       expect(await db.select().from(orgs)).toHaveLength(1);
+      // TG-EVERY-CALL-1124: two starts and three completions, ONE owner line from this service: the new account
+      // (a fact the per-call line cannot state). Codes asked and an existing account returned stay the per-call line's.
+      await settle();
+      expect(telegramTexts()).toEqual([expect.stringContaining(`${EMAIL} · signed up through the API`)]);
       // An agent org is re-marked on return (idempotent at billing) and never welcomed.
       expect(billingMarks()).toHaveLength(3);
       expect(callsTo("/v1/accounts")).toHaveLength(0);
