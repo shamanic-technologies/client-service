@@ -192,7 +192,8 @@ export async function startAgentSignup(
       ),
     );
 
-  notifyOwner(input.email, `📧 ${input.email} · asked for an API signup code (AI agent)${phoneSuffix(phone)}`);
+  // No owner Telegram line for a code asked (TG-EVERY-CALL-1124, owner 2026-11-24 choice « B »): the gateway's
+  // per-call line already reports this step; a second line here made Kevin read it twice.
 
   return {
     email: input.email,
@@ -527,6 +528,8 @@ async function createAccount(email: string, phone: string | null): Promise<Agent
   await markAgentApiSignup(local.orgId);
 
   notifyStaffSignup({ orgId: local.orgId, email });
+  // Kept (TG-EVERY-CALL-1124): the per-call line only says the completion answered 200; that a NEW account was
+  // opened (vs an existing one getting another key) is a fact only this line states.
   notifyOwner(email, `🆕 ${email} · signed up through the API (AI agent)${phoneSuffix(phone)}`);
 
   return {

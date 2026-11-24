@@ -1,7 +1,9 @@
 /**
- * One short Telegram line to the owner at each step of an AI agent's signup
- * (owner 2026-10-07: "il faut que je reçoive un message court à chaque étape";
- * 2026-10-12: a message at each signup step of the agent flow too). Same bot and
+ * One short Telegram line to the owner when an AI agent's signup OPENS an account
+ * or hands over an org. Every other signup step (code asked, code redeemed on an
+ * existing account) is the gateway's per-call line (TG-EVERY-CALL-1124, owner
+ * 2026-11-24 choice « B »): never re-add a line here for a step that line
+ * already reports, or Kevin reads it twice. Same bot and
  * chat as the dashboard's signup pings and billing's owner alerts
  * (`TELEGRAM_BOT_TOKEN`, `TELEGRAM_OWNER_CHAT_ID` in this service's env file).
  *
