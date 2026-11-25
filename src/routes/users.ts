@@ -25,6 +25,10 @@ router.get("/internal/users/:userId", requireApiKey, async (req, res) => {
         email: users.email,
         firstName: users.firstName,
         lastName: users.lastName,
+        // The verified channel number (WhatsApp/Telegram sender) and the number
+        // typed at onboarding. Never `contact_phone` (unverified, agent-stated).
+        phone: users.phone,
+        onboardingPhone: users.onboardingPhone,
       })
       .from(users)
       .where(eq(users.id, parsed.data.userId))

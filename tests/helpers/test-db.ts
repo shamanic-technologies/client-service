@@ -68,6 +68,9 @@ export async function insertTestUser(data: {
   firstName?: string;
   lastName?: string;
   orgId?: string;
+  phone?: string;
+  onboardingPhone?: string;
+  contactPhone?: string;
 } = {}) {
   const [user] = await db
     .insert(users)
@@ -77,6 +80,9 @@ export async function insertTestUser(data: {
       firstName: data.firstName,
       lastName: data.lastName,
       orgId: data.orgId,
+      phone: data.phone,
+      onboardingPhone: data.onboardingPhone,
+      contactPhone: data.contactPhone,
     })
     .returning();
   return user;
