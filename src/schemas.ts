@@ -131,6 +131,14 @@ const GetUserResponseSchema = z
       email: z.string().nullable(),
       firstName: z.string().nullable(),
       lastName: z.string().nullable(),
+      phone: z
+        .string()
+        .nullable()
+        .describe("The user's verified channel number (WhatsApp sender, E.164), null when none."),
+      onboardingPhone: z
+        .string()
+        .nullable()
+        .describe("The number the user typed at onboarding, null when none. Not verified by a channel."),
     }),
   })
   .openapi("GetUserResponse");
