@@ -373,13 +373,25 @@
               "lastName": {
                 "type": "string",
                 "nullable": true
+              },
+              "phone": {
+                "type": "string",
+                "nullable": true,
+                "description": "The user's verified channel number (WhatsApp sender, E.164), null when none."
+              },
+              "onboardingPhone": {
+                "type": "string",
+                "nullable": true,
+                "description": "The number the user typed at onboarding, null when none. Not verified by a channel."
               }
             },
             "required": [
               "id",
               "email",
               "firstName",
-              "lastName"
+              "lastName",
+              "phone",
+              "onboardingPhone"
             ]
           }
         },

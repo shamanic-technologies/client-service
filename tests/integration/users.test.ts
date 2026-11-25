@@ -50,7 +50,41 @@ describe("GET /internal/users/:userId", () => {
       email: "test@example.com",
       firstName: "Jane",
       lastName: "Doe",
+      phone: null,
+      onboardingPhone: null,
     });
+  });
+
+  it("serves the channel number and the onboarding number, each under its own name", async () => {
+    const org = await insertTestOrg({ externalId: "org-phones" });
+    const user = await insertTestUser({
+      externalId: "user-phones",
+      email: "phones@example.com",
+      orgId: org.id,
+      phone: "+15550000101",
+      onboardingPhone: "+15550000102",
+    });
+
+    const res = await request(app)
+      .get(`/internal/users/${user.id}`)
+      .set("x-api-key", API_KEY);
+
+    expect(res.status).toBe(200);
+    expect(res.body.user.phone).toBe("+15550000101");
+    expect(res.body.user.onboardingPhone).toBe("+15550000102");
+  });
+
+  it("never serves the unverified agent-signup contact number as a phone", async () => {
+    const user = await insertTestUser({ externalId: "user-contact", contactPhone: "+15550000103" });
+
+    const res = await request(app)
+      .get(`/internal/users/${user.id}`)
+      .set("x-api-key", API_KEY);
+
+    expect(res.status).toBe(200);
+    expect(res.body.user.phone).toBeNull();
+    expect(res.body.user.onboardingPhone).toBeNull();
+    expect(JSON.stringify(res.body)).not.toContain("+15550000103");
   });
 
   it("should return 404 for non-existent userId", async () => {
